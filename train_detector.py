@@ -5,13 +5,14 @@ import tensorflow as tf
 import sys
 
 import sklearn.metrics as metrics
-import matplotlib
+# import matplotlib
 import time
 from time import gmtime, strftime
 import copy
 import scipy.stats as stats
 import csv
 import ED_utils
+import LogitsOfManipulations
 from scipy.io import savemat
 
 if 'ybahat/PycharmProjects' in os.getcwd():
@@ -63,6 +64,9 @@ parser.add_argument("-lr", type=float, default=0.005,help="Initial Learning Rate
 parser.add_argument("-train", action='store_true', help="Train the model (Don't just evaluate a trained model)")
 parser.add_argument("-dropout", type=float,default=0.5, help="Use drop out")
 parser.add_argument("-class_balance", action='store_true',default=True, help="Class Balanced loss")
+parser.add_argument("-detector_checkpoint", type=str, help="Layers widths", nargs='*')
+parser.add_argument("-classifier_checkpoint", type=str, help="Layers widths", nargs='*')
+
 # parser.add_argument("-DTS", action='store_true',
 #                     help="Use validation-set-based Training-Set instead of original training set for training")
 # parser.add_argument("-VTS", action='store_true',
@@ -100,25 +104,25 @@ parser.add_argument("-augment", action='store_true', help="Use training set with
 args = parser.parse_args()
 
 
-def ConvertDirName2ClassNums(dirName):
-    if type(dirName) == list:
-        if dirName[0][:len('Exc_')] != 'Exc_':
-            return dirName[0]
-        common_classes = [label for label in CIFAR10_labels.get_label_num(dirName[0].split('_')) if type(label) == int]
-        non_common = common_classes
-        for name in dirName[1:]:
-            cur_class = CIFAR10_labels.get_label_num(name.split('_'))
-            common_classes = [label for label in common_classes if label in cur_class]
-            non_common = non_common + cur_class
-        non_common = [str(label) for label in set(non_common) if (label not in common_classes and type(label) == int)]
-        common_classes = [str(label) for label in common_classes]
-        if len(common_classes) < 1:
-            raise Exception('No common excluded labels')
-        non_common.sort()
-        common_classes.sort()
-        return 'Exc_' + '_'.join(common_classes) + ('__' + '_'.join(non_common) if len(non_common) > 0 else '')
-    else:
-        return '_'.join([str(label) for label in CIFAR10_labels.get_label_num(dirName.split('_'))])
+# def ConvertDirName2ClassNums(dirName):
+#     if type(dirName) == list:
+#         if dirName[0][:len('Exc_')] != 'Exc_':
+#             return dirName[0]
+#         common_classes = [label for label in CIFAR10_labels.get_label_num(dirName[0].split('_')) if type(label) == int]
+#         non_common = common_classes
+#         for name in dirName[1:]:
+#             cur_class = CIFAR10_labels.get_label_num(name.split('_'))
+#             common_classes = [label for label in common_classes if label in cur_class]
+#             non_common = non_common + cur_class
+#         non_common = [str(label) for label in set(non_common) if (label not in common_classes and type(label) == int)]
+#         common_classes = [str(label) for label in common_classes]
+#         if len(common_classes) < 1:
+#             raise Exception('No common excluded labels')
+#         non_common.sort()
+#         common_classes.sort()
+#         return 'Exc_' + '_'.join(common_classes) + ('__' + '_'.join(non_common) if len(non_common) > 0 else '')
+#     else:
+#         return '_'.join([str(label) for label in CIFAR10_labels.get_label_num(dirName.split('_'))])
 
 
 if True:  # Arguments processin:
@@ -159,10 +163,10 @@ if True:  # Arguments processin:
     batch_size_validation = int(
         np.ceil(cifar10.NUM_EXAMPLES_PER_EPOCH_FOR_EVAL / NumOfValIters))  # batch size for everything but training
     # Changing default parameters:
-    if args.imagesDir is not None:
-        print('Taking images from modified CIFAR10 DB: %s' % (trainOrFutureSavingImages))
-        extra_params_string = '_m' + ConvertDirName2ClassNums(args.NNDir) + '_t' + ConvertDirName2ClassNums(
-            args.imagesDir[0])
+    # if args.imagesDir is not None:
+    #     print('Taking images from modified CIFAR10 DB: %s' % (trainOrFutureSavingImages))
+    #     extra_params_string = '_m' + ConvertDirName2ClassNums(args.NNDir) + '_t' + ConvertDirName2ClassNums(
+    #         args.imagesDir[0])
     # if args.batch_size is not None:
     batch_size = args.batch_size
     #     extra_params_string = extra_params_string + '_BSZ%d' % (BATCH_SIZE)
@@ -712,7 +716,7 @@ if args.train:
     #     new_order = (
     #         new_order.reshape([-1, 1, num_classes]) + np.arange(0, num_classes * (num_manips + 1), num_classes).reshape(
     #             [1, -1, 1])).reshape([-1, num_classes * (num_manips + 1)])
-        data_mat_val = data_mat_val[np.arange(data_mat_val.shape[0]).reshape([-1, 1]), new_order]
+    #     data_mat_val = data_mat_val[np.arange(data_mat_val.shape[0]).reshape([-1, 1]), new_order]
     # if args.perLabel:  # or order_per_label:
     #     features_mean = np.zeros([num_classes, data_mat.shape[1]])
     #     features_std = np.zeros_like(features_mean)
