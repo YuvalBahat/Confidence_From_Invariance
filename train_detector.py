@@ -212,7 +212,7 @@ with tf.Session() as sess:
                 latest_loss_drop = epoch
                 cur_lr *= LEARNING_RATE_DECAY_FACTOR
                 if cur_lr<MIN_LR:
-                    print('Breaking training because learning rate is below %.3f'%(MIN_LR))
+                    print('Breaking training because learning rate is below %.3e'%(MIN_LR))
                     break
                 print('Dropping learning rate to %.2e after %d epochs without loss drop. Lowest training loss so far was %.4f.'%(cur_lr,args.lr_decrease_epochs,lowest_train_loss))
         saver_D.save(sess, os.path.join(args.detector_checkpoint,model_name,'model.ckpt-%d' % (step)))

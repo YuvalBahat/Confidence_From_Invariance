@@ -67,9 +67,6 @@ RELATIVE_WEIGHTS_CONF = 'outputs_linear_comb_pull_up'#'outputs_linear_comb'#'wei
 TOWER_NAME = 'tower'
 
 DATA_URL = 'http://www.cs.toronto.edu/~kriz/cifar-10-binary.tar.gz'
-# INNER_DATA_DIR = 'cifar-10-batches-bin'
-# INNER_DATA_DIR = 'Original0'
-INNER_DATA_DIR = 'Exc_Bird_Frog'
 
 def _activation_summary(x):
   """Helper to create summaries for activations.
@@ -106,56 +103,6 @@ def _variable_on_cpu(name, shape, initializer):
     var = tf.get_variable(name, shape, initializer=initializer, dtype=dtype)
   return var
 
-def _variable_coeffs_of_sum_one(name, shape, stddev,wd=None):
-  """Helper to create an initialized Variable with weight decay.
-
-  Note that the Variable is initialized with a truncated normal distribution.
-  A weight decay is added only if one is specified.
-
-  Args:
-    name: name of the variable
-    shape: list of ints
-    stddev: standard deviation of a truncated Gaussian
-    wd: add L2Loss weight decay multiplied by this float. If None, weight
-        decay is not added for this Variable.
-
-  Returns:
-    Variable Tensor
-  """
-  high_verbosity = False
-  shape[0] = shape[0]-1
-  dtype = tf.float16 if FLAGS.use_fp16 else tf.float32
-  initial_value = np.matlib.repmat(np.eye(N=shape[0]+1),1,int(np.ceil(shape[1]/(shape[0]+1)))).astype(np.float32)[:shape[0],:shape[1]]
-  # initial_value = 0.5*np.random.uniform(size=initial_value.shape).astype(np.float32)
-  initial_value = initial_value+np.random.normal(size=initial_value.shape,scale=0.05).astype(np.float32)
-  # print('initial_value: ',initial_value)
-  # with tf.device('/cpu:0'):
-  #     var = tf.Variable(initial_value=initial_value,name=name,expected_shape=shape,dtype=dtype)
-  with tf.device('/cpu:0'):
-    var = tf.Variable(tf.constant(initial_value),name=name,dtype=dtype)
-  # var = _variable_on_cpu(
-  #     name,
-  #     shape,
-  #     tf.truncated_normal_initializer(mean=0.5,stddev=stddev, dtype=dtype))
-  var = tf.concat([var,1-tf.reduce_sum(var,axis=0,keep_dims=True)],axis=0)
-  if wd is not None:
-    if high_verbosity:
-      var = tf.Print(var,[tf.reduce_min(tf.reshape(var,[-1])),tf.reduce_max(tf.reshape(var,[-1]))],'This is min(var), max(var):\n')
-    var_cov = tf.matmul(var,var,transpose_b=True)
-    if high_verbosity:
-      var_cov = tf.Print(var_cov,[tf.reduce_min(tf.diag_part(var_cov)),tf.reduce_max(tf.diag_part(var_cov)),var_cov],'This is min(diag), max(diag), var_cov:\n')
-    var_eig_vals,_ = tf.self_adjoint_eig(var_cov)
-    min_eig_val_loss = tf.multiply(-wd,tf.reduce_min(var_eig_vals),name='min_eig_val_loss')
-    tf.add_to_collection('losses', min_eig_val_loss)
-    # limit_var_range = tf.multiply(1000.0,tf.reduce_sum(tf.reshape(tf.nn.relu(tf.abs(var)-1),[-1])),name='limit_var_range')
-    # def f1():
-    #   return tf.Print(limit_var_range,[limit_var_range],'Range penalty: ')
-    # def f2():
-    #   return limit_var_range
-    # limit_var_range = tf.cond(limit_var_range>0,f1,f2)
-    # tf.add_to_collection('losses', limit_var_range)
-  return var
-
 def _variable_with_weight_decay(name, shape, stddev, wd):
   """Helper to create an initialized Variable with weight decay.
 
@@ -179,59 +126,6 @@ def _variable_with_weight_decay(name, shape, stddev, wd):
       tf.truncated_normal_initializer(stddev=stddev, dtype=dtype))
   if wd is not None:
     weight_decay = tf.multiply(tf.nn.l2_loss(var), wd, name='weight_loss')
-    tf.add_to_collection('losses', weight_decay)
-  return var
-
-def _variable_with_relative_weight_decay(name, shape, stddev, wd, relative_var,relative_weights_conf=RELATIVE_WEIGHTS_CONF):
-  """Helper to create an initialized Variable with weight decay.
-
-  Note that the Variable is initialized with a truncated normal distribution.
-  A weight decay is added only if one is specified.
-
-  Args:
-    name: name of the variable
-    shape: list of ints
-    stddev: standard deviation of a truncated Gaussian
-    wd: add L2Loss weight decay multiplied by this float. If None, weight
-        decay is not added for this Variable.
-
-  Returns:
-    Variable Tensor
-  """
-  dtype = tf.float16 if FLAGS.use_fp16 else tf.float32
-  var = _variable_on_cpu(
-      name,
-      shape,
-      tf.truncated_normal_initializer(stddev=stddev, dtype=dtype))
-  if wd is not None:
-    new_way=True
-    if relative_weights_conf=='var_mean':
-      moment_axes = var.get_shape().as_list()
-      moment_axes = np.arange(len(moment_axes),dtype=int)
-      mean_rel,variance_rel = tf.nn.moments(relative_var,axes=moment_axes)
-      mean,variance = tf.nn.moments(var,axes=moment_axes)
-      weight_decay = tf.multiply(tf.square(mean_rel-mean)+tf.square(tf.multiply(4.0,variance_rel)-variance), wd, name='moments_diff_loss')
-    elif relative_weights_conf=='weight_vm_bias_m':
-      weights_not_biases = len(var.get_shape().as_list())==2
-      mean_rel,variance_rel = tf.nn.moments(relative_var,axes=[0])
-      mean,variance = tf.nn.moments(var,axes=[0])
-      if weights_not_biases:
-        mean_rel = tf.reduce_mean(mean_rel)
-        variance_rel = tf.reduce_mean(variance_rel)
-        mean = tf.reduce_mean(mean)
-        variance = tf.reduce_mean(variance)
-        weight_decay = tf.multiply(tf.square(mean_rel-mean)+tf.square(tf.multiply(4.0,variance_rel)-variance), wd, name='moments_diff_loss')
-      else:
-        weight_decay = tf.multiply(tf.square(mean_rel-mean), wd, name='moments_diff_loss')
-  
-    # if norm_not_diff:
-    #   var_size = np.prod(np.array(shape))
-    #   relative_var_size = np.prod(np.array(relative_var.get_shape().as_list()))
-    #   # weight_decay = tf.multiply(tf.abs(tf.nn.l2_loss(var)/tf.cast((tf.size(var)**2)/(tf.size(relative_var)**2),tf.float32)-tf.nn.l2_loss(relative_var)), wd, name='signed_weight_loss')
-    #   weight_decay = tf.multiply(tf.square(tf.nn.l2_loss(var)/tf.cast(var_size**2,tf.float32)-tf.nn.l2_loss(relative_var)/tf.cast(relative_var_size**2,tf.float32)), wd, name='signed_weight_loss')
-    # else:
-    #   weight_decay = tf.multiply(tf.square(tf.reduce_mean(var)-tf.reduce_mean(relative_var)), wd, name='signed_weight_loss')
-
     tf.add_to_collection('losses', weight_decay)
   return var
 
@@ -296,19 +190,8 @@ class inference:
     # If we only ran this model on a single GPU, we could simplify this function
     # by replacing all instances of tf.get_variable() with tf.Variable().
     #
-    # conv1
-    relative_restriction_weight = 1.0
-    pull_up_weight = 1.0
-    pull_up_ratio = 0.5
-    start_from_local4 = relative_weights_conf is not None and 'local4' in relative_weights_conf
-
     weight_decay = 0.004
-
-    based_on_pretrained = True if noneLabelNum<0 else False
     self.num_weights = 0
-    if based_on_pretrained:
-        weight_decay = 0.0
-    noneLabelNum = np.abs(noneLabelNum)
     with tf.variable_scope('conv1') as scope:
       kernel = _variable_with_weight_decay('weights',
                                            shape=[5, 5, 3, 64],
@@ -349,8 +232,6 @@ class inference:
     # local3
     with tf.variable_scope('local3') as scope:
       # Move everything into depth so we can perform a single matrix multiply.
-      # reshape = tf.reshape(self.pool2, [batch_size, -1])
-      # print('self.pool2 shape: ',np.prod(list(self.pool2.get_shape()[1:])))
       reshape = tf.reshape(self.pool2, shape=[-1, int(np.prod(list(self.pool2.get_shape()[1:])))])
       dim = reshape.get_shape()[1].value
       weights = _variable_with_weight_decay('weights', shape=[dim, 384],
@@ -368,13 +249,6 @@ class inference:
       self.local4 = tf.nn.relu(tf.matmul(self.local3, weights) + biases, name=scope.name)
       _activation_summary(self.local4)
       self.num_weights +=  np.prod(weights.get_shape().as_list()) + np.prod(biases.get_shape().as_list())
-      if start_from_local4:
-        if based_on_pretrained:
-            weights = tf.stop_gradient(weights,'fixing_pretrained_weights')
-            biases = tf.stop_gradient(biases,'fixing_pretrained_biases')
-        combination_coeffs = _variable_coeffs_of_sum_one(name='combination_coeffs', shape=[192,192], stddev=1/10.0,wd=relative_restriction_weight)
-        local4_none = tf.matmul(self.local4,combination_coeffs,name='none')
-        _activation_summary(local4_none)
     # linear layer(WX + b),
     # We don't apply softmax here because
     # tf.nn.sparse_softmax_cross_entropy_with_logits accepts the unscaled logits
@@ -386,61 +260,9 @@ class inference:
                                 tf.constant_initializer(0.0))
       _,weights_labels_coeff_Var = tf.nn.moments(weights,axes=[0])
       tf.summary.scalar('weights_labels_coeff_Var', tf.reduce_mean(weights_labels_coeff_Var))
-      if noneLabelNum>0:
-        print('Using relative weights configuration %s'%(relative_weights_conf))
-        if relative_weights_conf=='weight_vm_bias_m' or relative_weights_conf=='var_mean':
-          relative_restriction_weight = 15
-          print('Adding %d "None"  outputs to the CNN'%(noneLabelNum))
-          # weights = tf.concat([weights,_variable_with_relative_weight_decay('weights_none', [192, noneLabelNum],stddev=1/192.0, wd=relative_restriction_weight,relative_var=weights)],axis=1)
-          # biases = tf.concat([biases,_variable_with_relative_weight_decay('biases_none',[noneLabelNum],stddev=0.0,wd=relative_restriction_weight,relative_var=biases,norm_not_diff=False)],axis=0)
-          weights_none = _variable_with_relative_weight_decay('weights_none', [192, noneLabelNum],stddev=1/192.0, wd=relative_restriction_weight,relative_var=weights,relative_weights_conf=relative_weights_conf)
-          if based_on_pretrained:
-            print('Fixing the pretrained model')
-            sys.stdout.flush()
-            weights = tf.stop_gradient(weights,'fixing_pretrained_weights')
-            biases = tf.stop_gradient(biases,'fixing_pretrained_biases')
-          weights = tf.concat([weights,weights_none],axis=1)
-          biases_none = _variable_with_relative_weight_decay('biases_none',[noneLabelNum],stddev=0.0,wd=relative_restriction_weight,relative_var=biases,relative_weights_conf=relative_weights_conf)
-          biases = tf.concat([biases,biases_none],axis=0)
-          _,weights_none_coeff_Var = tf.nn.moments(weights_none,axes=[0])
-          tf.summary.scalar('weights_none_coeff_Var', tf.reduce_mean(weights_none_coeff_Var))
-          # tf.summary.histogram('weights_none_01', weights_none[:,1])
-          _,biases_none_var = tf.nn.moments(biases_none,axes=[0])
-          tf.summary.scalar('biases_none_var', biases_none_var)
-          # tf.summary.scalar('biases_none_01', biases_none[1])
-
       self.top_weights = weights
       self.top_biases = biases
-      if noneLabelNum>0 and relative_weights_conf[:len('outputs_linear_comb')]=='outputs_linear_comb':
-        softmax_linear_labels = tf.add(tf.matmul(self.local4, weights), biases, name=scope.name+'_labels')
-        if based_on_pretrained:
-            print('Fixing the pretrained model')
-            sys.stdout.flush()
-            softmax_linear_labels = tf.stop_gradient(softmax_linear_labels,'fixing_pretrained_model')
-            weights = tf.stop_gradient(weights,'fixing_pretrained_model')
-            biases = tf.stop_gradient(biases,'fixing_pretrained_model')
-        if start_from_local4:
-            combination_coeffs = _variable_coeffs_of_sum_one(name='combination_coeffs_top', shape=[NUM_CLASSES-1,noneLabelNum//2], stddev=1/10.0,wd=relative_restriction_weight)
-            combination_coeffs_local4 = _variable_coeffs_of_sum_one(name='combination_coeffs_local4', shape=[NUM_CLASSES,noneLabelNum-noneLabelNum//2], stddev=1/10.0,wd=relative_restriction_weight)
-            weights_none = tf.matmul(weights,combination_coeffs_local4,name='weights_none')
-            biases_none = tf.matmul(tf.reshape(biases,[1,-1]),combination_coeffs_local4,name='biases_none')
-        else:
-            combination_coeffs = _variable_coeffs_of_sum_one(name='combination_coeffs', shape=[NUM_CLASSES-1,noneLabelNum], stddev=1/10.0,wd=relative_restriction_weight)
-        _,combination_coeffs_Var = tf.nn.moments(combination_coeffs,axes=[1])
-        tf.summary.scalar('combination_coeffs_Var', tf.reduce_mean(combination_coeffs_Var))
-        self.softmax_linear  = tf.concat([softmax_linear_labels,tf.matmul(tf.concat([tf.slice(softmax_linear_labels,begin=[0,0],size=[-1,excluded_label]),
-          tf.slice(softmax_linear_labels,begin=[0,excluded_label+1],size=[-1,NUM_CLASSES-1-excluded_label])],axis=1),combination_coeffs)],axis=1, name=scope.name)
-        if start_from_local4:
-            self.softmax_linear  = tf.concat([self.softmax_linear,tf.add(tf.matmul(local4_none,weights_none),biases_none)],axis=1,name='top_and_local4')
-        if relative_weights_conf[:len('outputs_linear_comb_pull_up')]=='outputs_linear_comb_pull_up':
-          logit_max = tf.reduce_max(self.softmax_linear,axis=1,keep_dims=True)
-          none_max = tf.reduce_max(tf.slice(self.softmax_linear,begin=[0,NUM_CLASSES],
-              size=[batch_size,noneLabelNum]),axis=1,keep_dims=True)
-          pull_up_loss = tf.multiply(pull_up_weight,tf.reduce_mean(tf.square(logit_max+np.log(pull_up_ratio)-none_max)),name='pull_up_loss')
-          tf.add_to_collection('losses', pull_up_loss)
-
-      else:
-        self.softmax_linear = tf.add(tf.matmul(self.local4, weights), biases, name=scope.name)
+      self.softmax_linear = tf.add(tf.matmul(self.local4, weights), biases, name=scope.name)
       _activation_summary(self.softmax_linear)
       self.num_weights +=  np.prod(weights.get_shape().as_list()) + np.prod(biases.get_shape().as_list())
     print('Classifier has a total of %d parameters'%(self.num_weights))
@@ -448,12 +270,6 @@ class inference:
   def inference_logits(self):
     return self.softmax_linear
     # return softmax_linear
-  def ReturnLogits(self):
-    return self.inference_logits()
-  def inference_hidden_layers(self):
-    return {'pool1':self.pool1,'pool2':self.pool2,'local3':self.local3,'local4':self.local4}
-  def inference_top_weights(self):
-    return self.top_weights,self.top_biases
 
 
 def loss(logits, labels):
