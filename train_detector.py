@@ -2,11 +2,10 @@ import argparse
 import numpy as np
 import os
 import tensorflow as tf
-import sklearn.metrics as metrics
 # import matplotlib
 import Transformations
 import detector_network
-from example_utils import SplitCifar10TestSet
+import example_utils
 import cifar10.cifar10 as cifar10
 
 if 'ybahat/PycharmProjects' in os.getcwd():
@@ -23,7 +22,6 @@ else:
     PERFORMANCE_TEMPLATE_FOLDER = os.path.expanduser('/home-nfs/ybahat/experiments/GMMonVgg16/CIFAR10_alex/Code')
 import matplotlib.pylab as plt
 
-IMAGE_SIZE = [32,32,3]
 MIN_LR = 0.005/16
 LEARNING_RATE_DECAY_FACTOR = 0.5
 MOVING_AVERAGE_DECAY = 0.9999  # The decay to use for the moving average.
@@ -31,36 +29,41 @@ TRANSFORMATIONS_LIST = ['BW','horFlip','increaseContrast3','gamma8.5','blur3']
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-transformations", type=str, help="Type of features to use (usually type of perturbations)", nargs=1)
+parser.add_argument("-layers_widths", type=str, help="Layers widths", nargs='*')
+parser.add_argument("-classifier_checkpoint", type=str, default='/home/ybahat/PycharmProjects/CFI/cifar10/checkpoint',help="Folder containing classifier''s checkpoint")
+parser.add_argument("-dataset_folder", type=str, default="/home/ybahat/data/Databases/cifar10/bin", help='Folder where dataset files reside',nargs=1)
+parser.add_argument("-detector_checkpoint", type=str, help="Layers widths",default='./detector_ckpt', nargs='*')
 parser.add_argument("-batch_size", type=int, default=32,help="Batch size for detector training", nargs=1)
 parser.add_argument("-epochs", type=int, default=1000,help="Number of training epochs", nargs=1)
 parser.add_argument("-test_freq", type=int, default=5,help="Test detector every how many epochs", nargs=1)
-parser.add_argument("-lr_decrease_epochs", type=int, default=20,help="Number of epochs without training loss drop before decreasing lr", nargs=1)
-parser.add_argument("-layers_widths", type=str, help="Layers widths", nargs='*')
+parser.add_argument("-figures_folder", type=str, default="./figures", help='Folder where figures are saved',nargs=1)
+parser.add_argument("-lr_decrease_epochs", type=int, default=30,help="Number of epochs without training loss drop before decreasing lr", nargs=1)
 parser.add_argument("-lr", type=float, default=0.005,help="Initial Learning Rate", nargs=1)
 parser.add_argument("-train_portion", type=float, default=0.5,help="Portion of validation dataset used as detector training set", nargs=1)
 parser.add_argument("-train", action='store_true', help="Train the model (Don't just evaluate a trained model)")
 parser.add_argument("-resume_train", action='store_true', help="Resume training of a pre-trained detector")
-parser.add_argument("-dropout", type=float,default=0.5, help="Use drop out")
 parser.add_argument("-data_normalization", action='store_true',help="Don''t use Class Balanced loss")
-parser.add_argument("-detector_checkpoint", type=str, help="Layers widths",default='./detector_ckpt', nargs='*')
-parser.add_argument("-classifier_checkpoint", type=str, default='/home/ybahat/PycharmProjects/CFI/cifar10/checkpoint',help="Folder containing classifier''s checkpoint")
-parser.add_argument("-dataset_folder", type=str, default="/home/ybahat/data/Databases/cifar10/bin", help='Folder where dataset files reside',nargs=1)
 parser.add_argument("-num_logits_per_transformation", type=int,default=-1,help="If positive, use only the HighEnerLogits logits holding most energy, calculated per-label over training set")
 parser.add_argument("-no_augmentation", action='store_true', help="Avoid using training set with random image distortions")
+parser.add_argument("-dropout", type=float,default=0.5, help="Use drop out")
 args = parser.parse_args()
+print('------------ Options -------------')
+for k, v in sorted(args._get_kwargs()):
+    print('%s: %s' % (str(k), str(v)))
+print('-------------- End ----------------')
 
 batch_size = args.batch_size
-# num_logits_per_transformation = args.num_logits_per_transformation
 validation_split_filename = os.path.join(args.dataset_folder,'ValidationSetSplit_%s.npz'%(str(args.train_portion).replace('.','_')))
-num_of_samples = SplitCifar10TestSet(dataset_folder=args.dataset_folder)
 if os.path.exists(validation_split_filename):
     detector_train_set_indicator = np.load(validation_split_filename)['detector_train_set_indicator']
 else:
+    print('!!! drawing a NEW random split of the classifier''s validation set into training and validation sets for the detector !!!')
+    num_of_samples = example_utils.SplitCifar10TestSet(dataset_folder=args.dataset_folder)
     detector_train_set_indicator = np.zeros([num_of_samples]).astype(np.bool)
     detector_train_set_indicator[np.random.permutation(num_of_samples)[:int(num_of_samples*args.train_portion)]] = True
     np.savez(validation_split_filename,detector_train_set_indicator=detector_train_set_indicator)
-SplitCifar10TestSet(dataset_folder=args.dataset_folder,train_indicator=detector_train_set_indicator)
-data2load = tf.placeholder(dtype=tf.string)
+num_of_samples = example_utils.SplitCifar10TestSet(dataset_folder=args.dataset_folder,train_indicator=detector_train_set_indicator)
+data2use = tf.placeholder(dtype=tf.string)
 images_stats,labels_stats = cifar10.inputs(eval_data=False, inner_data_dir=args.dataset_folder,batch_size=args.batch_size)
 def StatsData():    return images_stats, labels_stats
 images_val, labels_val = cifar10.inputs(eval_data=True, inner_data_dir=args.dataset_folder,batch_size=args.batch_size)
@@ -70,8 +73,8 @@ if args.no_augmentation:
 else:
     images_train,labels_train = cifar10.distorted_inputs(eval_data=False, inner_data_dir=args.dataset_folder,batch_size=args.batch_size)
 def TrainData():    return images_train, labels_train
-images, labels = tf.case({tf.equal(data2load,'stats'):StatsData,tf.equal(data2load,'train'):TrainData,tf.equal(data2load,'val'):ValData})
-transformer = Transformations.Transformer(transformations=TRANSFORMATIONS_LIST,image_size=IMAGE_SIZE)
+images, labels = tf.case({tf.equal(data2use,'stats'):StatsData,tf.equal(data2use,'train'):TrainData,tf.equal(data2use,'val'):ValData})
+transformer = Transformations.Transformer(transformations=TRANSFORMATIONS_LIST,image_size=cifar10.IMAGE_SIZE)
 images,labels = transformer.TransformImages_TF_OP(images,labels)
 train_batches_per_epoch = int(np.ceil(num_of_samples*args.train_portion / args.batch_size))
 
@@ -88,7 +91,7 @@ variables_to_restore_C = variable_averages_C.variables_to_restore()
 saver_C = tf.train.Saver(variables_to_restore_C)
 # Detector:
 keep_prob = tf.placeholder(tf.float32)
-batch_norm = tf.placeholder(tf.bool)
+bn_learning = tf.placeholder(tf.bool)
 lr = tf.placeholder(tf.float32, [])
 
 if args.train:
@@ -107,10 +110,10 @@ if args.train:
             trainset_features = []
             for batch_num in range(train_batches_per_epoch):
                 if args.data_normalization:
-                    cur_detections,cur_features = sess.run([detector_labels,features_vects],feed_dict={data2load: 'stats', lr: 0, keep_prob: 0,batch_norm: True})
+                    cur_detections,cur_features = sess.run([detector_labels,features_vects],feed_dict={data2use: 'stats', lr: 0, keep_prob: 0,bn_learning: True})
                     trainset_features.append(cur_features)
                 else:
-                    cur_detections = sess.run(detector_labels,feed_dict={data2load: 'stats', lr: 0, keep_prob: 0,batch_norm: True})
+                    cur_detections = sess.run(detector_labels,feed_dict={data2use: 'stats', lr: 0, keep_prob: 0,bn_learning: True})
                 pos_class_freq += np.mean(cur_detections)/train_batches_per_epoch
         except Exception as e:  # pylint: disable=broad-except
             coord.request_stop(e)
@@ -122,7 +125,7 @@ if args.train:
         features_mean = tf.constant(np.mean(trainset_features,axis=0))
         features_std = tf.constant(np.maximum(np.std(trainset_features,axis=0),1e-3))
         features_vects = tf.divide(tf.subtract(features_vects,features_mean),features_std)
-    detector = detector_network.Detector_NN(features_vects, layers_widths=args.layers_widths, keep_prob=keep_prob,batch_norm=batch_norm)
+    detector = detector_network.Detector_NN(features_vects, layers_widths=args.layers_widths, keep_prob=keep_prob,bn_learning=bn_learning)
     print('Detector has a total of %d trainable weights' % (detector.num_weights))
     print('Balancing loss to reflect %.2f%% positive, instead of the original %.2f%%' % (100 * desired_pos_class_freq, 100 * pos_class_freq))
     detector_logit = detector.logit
@@ -157,7 +160,7 @@ else:
     eval_op = tf.group(variables_averages_op)
 
 step = 0
-lowest_train_loss = 1000
+lowest_train_loss = None
 latest_best_loss = 0
 
 with tf.Session() as sess:
@@ -172,7 +175,7 @@ with tf.Session() as sess:
         print('%s using checkpoint ' % ('Continue training' if args.resume_train else 'Evaluating'), ckpt_D)
         saver_D.restore(sess, ckpt_D.model_checkpoint_path)
     else:# Train a new detector:
-        print('Creating new model ', model_name)
+        print('Creating new model: ', model_name)
         tf.gfile.MakeDirs(os.path.join(args.detector_checkpoint,model_name))
         saver_D.save(sess, os.path.join(args.detector_checkpoint,model_name,'model.ckpt-%d' % (step)))
     coord = tf.train.Coordinator()
@@ -184,33 +187,25 @@ with tf.Session() as sess:
             if epoch%args.test_freq==0:
                 detector_val_logits,detector_val_labels,classifier_MSR_val = [],[],[]
                 for batch_num in range(val_batches_per_epoch):
-                    cur_logits,cur_labels,cur_softmax = sess.run([detector_logit,detector_labels,classifier_softmax],feed_dict={data2load:'val',lr:cur_lr,keep_prob:1,batch_norm:False})
+                    cur_logits,cur_labels,cur_softmax = sess.run([detector_logit,detector_labels,classifier_softmax],feed_dict={data2use:'val',lr:cur_lr,keep_prob:1,bn_learning:False})
                     detector_val_logits.append(cur_logits)
                     detector_val_labels.append(cur_labels)
                     classifier_MSR_val.append(np.max(cur_softmax,axis=1))
-                detector_val_logits = np.concatenate(detector_val_logits)
-                detector_val_labels = np.concatenate(detector_val_labels)
-                classifier_MSR_val = np.concatenate(classifier_MSR_val)
-                val_AUROC_CFI = metrics.roc_auc_score(y_true=detector_val_labels, y_score=detector_val_logits)
-                val_AUROC_MSR = metrics.roc_auc_score(y_true=detector_val_labels, y_score=-1*classifier_MSR_val)
+                val_AUROC_CFI,val_AUROC_MSR = example_utils.ProcessValidationData(detector_val_logits, detector_val_labels, classifier_MSR_val,figures_folder=args.figures_folder)
                 detector_train_logits,detector_train_labels,classifier_MSR_train = [],[],[]
                 for batch_num in range(train_batches_per_epoch):
-                    cur_logits, cur_labels, cur_softmax = sess.run([detector_logit, detector_labels, classifier_softmax],feed_dict={data2load: 'stats', lr: cur_lr, keep_prob: 1, batch_norm: False})
+                    cur_logits, cur_labels, cur_softmax = sess.run([detector_logit, detector_labels, classifier_softmax],feed_dict={data2use: 'stats', lr: cur_lr, keep_prob: 1, bn_learning: False})
                     detector_train_logits.append(cur_logits)
                     detector_train_labels.append(cur_labels)
                     classifier_MSR_train.append(np.max(cur_softmax, axis=1))
-                detector_train_logits = np.concatenate(detector_train_logits)
-                detector_train_labels = np.concatenate(detector_train_labels)
-                classifier_MSR_train = np.concatenate(classifier_MSR_train)
-                train_AUROC_CFI = metrics.roc_auc_score(y_true=detector_train_labels, y_score=detector_train_logits)
-                train_AUROC_MSR = metrics.roc_auc_score(y_true=detector_train_labels, y_score=-1 * classifier_MSR_train)
+                train_AUROC_CFI,train_AUROC_MSR = example_utils.ProcessValidationData(detector_train_logits, detector_train_labels, classifier_MSR_train)
                 print('Epoch %d. AUROC on e(training/validation) sets: (%.3f/%.3f). AUROC using MSR: (%.3f/%.3f)'%(epoch,train_AUROC_CFI,val_AUROC_CFI,train_AUROC_MSR,val_AUROC_MSR))
             train_loss = 0
             for batch_num in range(train_batches_per_epoch):
-                step, cur_loss,_ = sess.run([global_step_detector,square_loss,train_op],feed_dict={data2load:'train',lr:cur_lr,keep_prob:keep_prob_,batch_norm:True})
+                step, cur_loss,_ = sess.run([global_step_detector,square_loss,train_op],feed_dict={data2use:'train',lr:cur_lr,keep_prob:keep_prob_,bn_learning:True})
                 train_loss += cur_loss/train_batches_per_epoch
-            if train_loss<lowest_train_loss:
-                print('Minimum train loss drop from %.3f to %.3f'%(lowest_train_loss,train_loss))
+            if lowest_train_loss is None or train_loss<lowest_train_loss:
+                # print('Minimum train loss drop from %.3f to %.3f'%(lowest_train_loss,train_loss))
                 lowest_train_loss = train_loss
                 latest_loss_drop = epoch
             elif epoch-latest_loss_drop>args.lr_decrease_epochs:
