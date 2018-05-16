@@ -1,4 +1,4 @@
-import cifar10.example_classifier as example_classifier
+# import cifar10.example_classifier as example_classifier
 import cifar10.cifar10 as cifar10
 import tensorflow as tf
 import os
@@ -35,8 +35,9 @@ def ValData():  return images_val, labels_val
 images, labels = tf.cond(val_data, true_fn=ValData, false_fn=TrainData)
 transformer = Transformations.Transformer(transformations=TRANSFORMATIONS_LIST,image_size=IMAGE_SIZE)
 images,labels = transformer.TransformImages_TF_OP(images,labels)
-classifier = example_classifier.example_classifier(checkpoint_dir='/home/ybahat/PycharmProjects/CFI/cifar10/checkpoint',images=images,labels=labels)
-logits,correctness = classifier.ClassifyBatch()
+classifier = cifar10.inference(images)
+logits = classifier.inference_logits()
+correctness = tf.nn.in_top_k(logits,labels, 1)
 logits = transformer.Process_Logits_TF_OP(logits)[1]
 detector_labels = tf.logical_not(transformer.Process_NonLogits_TF_OP(correctness))
 variable_averages = tf.train.ExponentialMovingAverage(cifar10.MOVING_AVERAGE_DECAY)

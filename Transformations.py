@@ -6,6 +6,7 @@ import warnings
 import ED_utils
 import tensorflow as tf
 
+
 OPTIONAL_LOGITS_PERTURBATIONS = {0:'horFlip',1:'plusBright',2:'minusBright',3:'increaseContrast3',4:'decreaseContrast',5:'zoom_in',
     6:'horTrans',7:'increaseContrast1',8:'increaseContrast2',9:'BW',11:'masking05',12:'masking10',13:'masking15',\
     21:'gamma07',22:'gamma13',23:'gamma17',24:'gamma05',25:'gamma09',26:'gamma9.5',27:'gamma08',28:'gamma7.5',29:'gamma8.5',31:'gamma10.5',
@@ -277,7 +278,7 @@ class Transformer():
             # if file_name is not None:
             #     np.savez(file_name+'_'+self.manipulations_string+'.npz',features_vect=features_vect,detector_label=detector_label)
             return input_logits,features_vect,detector_label
-    def Process_Logits_TF_OP(self,input_logits):
+    def Process_Logits_TF_OP(self,input_logits,reorder_logits=True,num_logits_per_transformation=-1):
         # For the logits output of a classifier, this function convets it to feature vector for our detector. if GT_labels for the images
         # are given, the function returns the detector labels as well (whether the image was correctly or incorrectly classified).
         #top5 - Concerns the detector labels - If true, the detector label is True if the correct label is not among the highest 5 logits.
@@ -289,10 +290,24 @@ class Transformer():
             # detector_label - The detector labels, when GT_labels are given.
         input_logits_shape = input_logits.get_shape().as_list()
         assert len(input_logits_shape)==2,'Unrecognized logits shape'
+        assert not (num_logits_per_transformation>0 and not reorder_logits),'Cannot keep k logits per transformation without sorting them'
+        assert not num_logits_per_transformation>input_logits_shape[1],'Cannot keep more logits (%d) than there are originally (%d)'%(num_logits_per_transformation,input_logits_shape[1])
         # assert not (KLD_loss_output and TVD_loss_output),'Should choose either flags'
         input_logits = tf.reshape(input_logits,[-1,self.per_image_copies,input_logits_shape[1]])
         logits_of_original = tf.reshape(tf.slice(input_logits,begin=[0,0,0],size=[-1,1,-1]),[-1,input_logits_shape[-1]])
-        features_vect = tf.reshape(input_logits,[-1, self.per_image_copies * input_logits_shape[-1]])
+        if reorder_logits:
+            org_logits_shape = logits_of_original.get_shape().as_list()
+            _,descending_order = tf.nn.top_k(logits_of_original,k=10)
+            descending_order = tf.tile(tf.reshape(descending_order,shape=[-1,1,org_logits_shape[1],1]),[1,self.per_image_copies,1,1])
+            image_indices = tf.tile(tf.reshape(tf.range(org_logits_shape[0]),[org_logits_shape[0],1,1,1]),multiples=[1,self.per_image_copies,org_logits_shape[1],1])
+            permutation_indices = tf.tile(tf.reshape(tf.range(self.per_image_copies),[1,self.per_image_copies,1,1]),[org_logits_shape[0],1,org_logits_shape[1],1])
+            combined_indices = tf.concat([image_indices,permutation_indices,descending_order],axis=3)
+            descending_values = tf.gather_nd(params=input_logits,indices=combined_indices)
+            if num_logits_per_transformation>0:
+                descending_values = tf.slice(descending_values,begin=[0,0,0],size=[-1,-1,num_logits_per_transformation])
+            features_vect = tf.reshape(descending_values,[int(input_logits_shape[0]/self.per_image_copies),-1])
+        else:
+            features_vect = tf.reshape(input_logits,[-1, self.per_image_copies * input_logits_shape[-1]])
         # input_logits = tf.reshape(tf.slice(input_logits,begin=[0,0,0],size=[-1,1,-1]),[-1,input_logits_shape[-1]])
         return tf.stop_gradient(logits_of_original),tf.stop_gradient(features_vect)
 def KL_divergence(logits_of_transformations,num_transformations):

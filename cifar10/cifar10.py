@@ -46,7 +46,8 @@ from six.moves import urllib
 import tensorflow as tf
 
 import cifar10.cifar10_input as cifar10_input
-
+import sys
+# if __name__ == "__main__":
 FLAGS = tf.app.flags.FLAGS
 
 # Basic model parameters.
@@ -56,6 +57,10 @@ tf.app.flags.DEFINE_string('data_dir', '/share/data/vision-greg2/users/ybahat/mo
                            """Path to the CIFAR-10 data directory.""")
 tf.app.flags.DEFINE_boolean('use_fp16', False,
                             """Train the model using fp16.""")
+# The following is a solution I found here:  https://stackoverflow.com/questions/48198770/tensorflow-1-5-0-rc0-error-using-tf-app-flags
+#  to a problem with the tf FLAGS I had when switching to version 1.7:
+remaining_args = FLAGS([sys.argv[0]] + [flag for flag in sys.argv if flag.startswith("--")])
+assert(remaining_args == [sys.argv[0]])
 
 # Global constants describing the CIFAR-10 data set.
 IMAGE_SIZE = cifar10_input.IMAGE_SIZE
@@ -245,7 +250,7 @@ def _variable_with_relative_weight_decay(name, shape, stddev, wd, relative_var,r
     tf.add_to_collection('losses', weight_decay)
   return var
 
-def distorted_inputs(inner_data_dir,eval_data=False,batch_size=FLAGS.batch_size,coupleWithAugmentation=None):
+def distorted_inputs(inner_data_dir,eval_data=False,batch_size=FLAGS.batch_size):
   """Construct distorted input for CIFAR training using the Reader ops.
 
   Returns:
@@ -259,7 +264,7 @@ def distorted_inputs(inner_data_dir,eval_data=False,batch_size=FLAGS.batch_size,
   #   raise ValueError('Please supply a data_dir')
   # data_dir = os.path.join(FLAGS.data_dir, inner_data_dir)
   images, labels = cifar10_input.distorted_inputs(data_dir=inner_data_dir,
-                                                  batch_size=batch_size,eval_data=eval_data,coupleWithAugmentation=coupleWithAugmentation)
+                                                  batch_size=batch_size)
   if FLAGS.use_fp16:
     images = tf.cast(images, tf.float16)
     labels = tf.cast(labels, tf.float16)
