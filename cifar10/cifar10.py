@@ -173,8 +173,6 @@ def inputs(eval_data,inner_data_dir,batch_size=FLAGS.batch_size):
     labels = tf.cast(labels, tf.float16)
   return images, labels
 
-def ImagePostProcessAndBatch(image, label, batch_size, shuffle):
-    return cifar10_input.ImagePostProcessAndBatch(image, label, batch_size, shuffle)
 class inference:
   def __init__(self,images,noneLabelNum=0,relative_weights_conf=RELATIVE_WEIGHTS_CONF,excluded_label=None,batch_size=FLAGS.batch_size,extra_FC=False):
 # def inference(images):

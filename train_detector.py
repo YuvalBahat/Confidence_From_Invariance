@@ -2,7 +2,7 @@ import argparse
 import numpy as np
 import os
 import tensorflow as tf
-# import matplotlib
+import time
 import Transformations
 import detector_network
 import example_utils
@@ -62,31 +62,24 @@ else:
     np.savez(validation_split_filename,detector_train_set_indicator=detector_train_set_indicator)
 num_of_samples = example_utils.SplitCifar10TestSet(dataset_folder=args.dataset_folder,train_indicator=detector_train_set_indicator)
 data2use = tf.placeholder(dtype=tf.string)
-transformer = Transformations.Transformer(transformations=TRANSFORMATIONS_LIST)
-
-# Detector training set, for classifier accuracy testing:
-image_stats,label_stats = cifar10.inputs(eval_data=False, inner_data_dir=args.dataset_folder,batch_size=args.batch_size)
-image_stats,label_stats = transformer.TransformImages_TF_OP(image_stats,label_stats)
-images_stats,labels_stats = cifar10.ImagePostProcessAndBatch(image_stats, label_stats, args.batch_size, shuffle=False)
+images_stats,labels_stats = cifar10.inputs(eval_data=False, inner_data_dir=args.dataset_folder,batch_size=args.batch_size)
 def StatsData():    return images_stats, labels_stats
-
-# Detector training set, for detector training:
-image_train,label_train = cifar10.distorted_inputs(eval_data=False, inner_data_dir=args.dataset_folder,batch_size=args.batch_size)
-image_train,label_train = transformer.TransformImages_TF_OP(image_train,label_train)
-images_train,labels_train = cifar10.ImagePostProcessAndBatch(image_train, label_train, args.batch_size, shuffle=False)
+images_val, labels_val = cifar10.inputs(eval_data=True, inner_data_dir=args.dataset_folder,batch_size=args.batch_size)
+def ValData():  return images_val, labels_val
+if args.no_augmentation:
+    images_train, labels_train = images_stats,labels_stats
+else:
+    images_train,labels_train = cifar10.distorted_inputs(eval_data=False, inner_data_dir=args.dataset_folder,batch_size=args.batch_size)
 def TrainData():    return images_train, labels_train
-
-# Detector validation set:
-image_val,label_val = cifar10.inputs(eval_data=True, inner_data_dir=args.dataset_folder,batch_size=args.batch_size)
-image_val,label_val = transformer.TransformImages_TF_OP(image_val,label_val)
-images_val,labels_val = cifar10.ImagePostProcessAndBatch(image_val, label_val, args.batch_size, shuffle=False)
-def ValData():    return images_val, labels_val
-images, labels = tf.case({tf.equal(data2use,'stats'):StatsData,tf.equal(data2use,'train'):TrainData,tf.equal(data2use,'val'):ValData})
+pre_transform_images, labels = tf.case({tf.equal(data2use,'stats'):StatsData,tf.equal(data2use,'train'):TrainData,tf.equal(data2use,'val'):ValData})
+transformer = Transformations.Transformer(transformations=TRANSFORMATIONS_LIST)
+images,labels = transformer.TransformImages_TF_OP(pre_transform_images,labels)
+post_processed_images = tf.map_fn(lambda im:tf.image.per_image_standardization(im),images)
 
 train_batches_per_epoch = int(np.ceil(num_of_samples*args.train_portion / args.batch_size))
 val_batches_per_epoch = int(np.ceil(num_of_samples*(1-args.train_portion) / args.batch_size))
 # Classifier:
-classifier = cifar10.inference(images)
+classifier = cifar10.inference(post_processed_images)
 logits = classifier.inference_logits()
 correctness = tf.nn.in_top_k(logits,labels, 1)
 classifier_logits,features_vects = transformer.Process_Logits_TF_OP(logits,num_logits_per_transformation=args.num_logits_per_transformation)
@@ -168,7 +161,7 @@ else:
 step = 0
 lowest_train_loss = None
 latest_best_loss = 0
-
+prev_time = time.time()
 with tf.Session() as sess:
     sess.run(tf.global_variables_initializer())
     # Restores classifier from checkpoint
@@ -191,6 +184,8 @@ with tf.Session() as sess:
             threads.extend(qr.create_threads(sess, coord=coord, daemon=True, start=True))
         for epoch in range(args.epochs):
             if epoch%args.test_freq==0:
+                print('Previous round took %d seconds'%(time.time()-prev_time))
+                prev_time = time.time()
                 detector_val_logits,detector_val_labels,classifier_MSR_val = [],[],[]
                 for batch_num in range(val_batches_per_epoch):
                     cur_logits,cur_labels,cur_softmax = sess.run([detector_logit,detector_labels,classifier_softmax],feed_dict={data2use:'val',lr:cur_lr,keep_prob:1,bn_learning:False})

@@ -29,7 +29,7 @@ def BatchImresize(images, size):
 
 #This is the Transformer class (I call the transformations manipulations):
 class Transformer():
-    def __init__(self, transformations, batch_operation=False):
+    def __init__(self, transformations, batch_operation=True):
         # manipulations_string - A string of desired perturbation numbers (using the OPTIONAL_LOGITS_PERTURBATIONS legend), separated by '_'
         # image_size - Size of input images
         # One of the following two arguments has to be set:
@@ -95,8 +95,9 @@ class Transformer():
             if 'BW' in cur_transformation:
                 modified_image = tf.tile(tf.reduce_sum(tf.multiply(non_modified_images,tf.reshape(tf.constant([0.299,0.587,0.114]),[1,1,1,3])),axis=3,keep_dims=True),multiples=[1,1,1,3])
             if 'gamma' in cur_transformation:
-                tf.Assert(tf.reduce_all(tf.greater_equal(non_modified_images,0)),[tf.reduce_min(non_modified_images)])
-                modified_image = tf.pow(non_modified_images/MAX_PIXEL_VALUE,0.1*self.transformation_param[ind])*MAX_PIXEL_VALUE
+                modified_image = tf.clip_by_value(non_modified_images,clip_value_min=0,clip_value_max=MAX_PIXEL_VALUE)
+                # tf.Assert(tf.reduce_all(tf.greater_equal(non_modified_images,0)),[tf.reduce_min(non_modified_images)])
+                modified_image = tf.pow(modified_image/MAX_PIXEL_VALUE,0.1*self.transformation_param[ind])*MAX_PIXEL_VALUE
             images2use = tf.concat((images2use,tf.expand_dims(tf.cast(modified_image,images.dtype),axis=1)),axis=1)
         output_images =  tf.reshape(images2use,[-1]+image_shape)
         # if not self.batch_operation:
