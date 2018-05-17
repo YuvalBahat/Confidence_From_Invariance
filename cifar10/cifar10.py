@@ -48,7 +48,6 @@ remaining_args = FLAGS([sys.argv[0]] + [flag for flag in sys.argv if flag.starts
 assert(remaining_args == [sys.argv[0]])
 
 # Global constants describing the CIFAR-10 data set.
-IMAGE_SIZE = cifar10_input.IMAGE_SIZE
 NUM_CLASSES = cifar10_input.NUM_CLASSES
 NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN = cifar10_input.NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN
 NUM_EXAMPLES_PER_EPOCH_FOR_EVAL = cifar10_input.NUM_EXAMPLES_PER_EPOCH_FOR_EVAL
@@ -174,6 +173,8 @@ def inputs(eval_data,inner_data_dir,batch_size=FLAGS.batch_size):
     labels = tf.cast(labels, tf.float16)
   return images, labels
 
+def ImagePostProcessAndBatch(image, label, batch_size, shuffle):
+    return cifar10_input.ImagePostProcessAndBatch(image, label, batch_size, shuffle)
 class inference:
   def __init__(self,images,noneLabelNum=0,relative_weights_conf=RELATIVE_WEIGHTS_CONF,excluded_label=None,batch_size=FLAGS.batch_size,extra_FC=False):
 # def inference(images):

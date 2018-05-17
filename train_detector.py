@@ -9,7 +9,7 @@ import example_utils
 import cifar10.cifar10 as cifar10
 
 if 'ybahat/PycharmProjects' in os.getcwd():
-    os.environ["CUDA_VISIBLE_DEVICES"] = "3"  # Limit to 1 GPU when using an interactive session
+    os.environ["CUDA_VISIBLE_DEVICES"] = "3,4"  # Limit to 1 GPU when using an interactive session
     # matplotlib.use('tkagg')  # I assume running in interactive mode
     CHECKPOINTS_DIR = '../Checkpoints'
     CLASSIFIER_MODELS_DIR = os.path.expanduser('../GradClassifiers')
@@ -28,18 +28,17 @@ MOVING_AVERAGE_DECAY = 0.9999  # The decay to use for the moving average.
 TRANSFORMATIONS_LIST = ['BW','horFlip','increaseContrast3','gamma8.5','blur3']
 
 parser = argparse.ArgumentParser()
-parser.add_argument("-transformations", type=str, help="Type of features to use (usually type of perturbations)", nargs=1)
 parser.add_argument("-layers_widths", type=str, help="Layers widths", nargs='*')
 parser.add_argument("-classifier_checkpoint", type=str, default='/home/ybahat/PycharmProjects/CFI/cifar10/checkpoint',help="Folder containing classifier''s checkpoint")
 parser.add_argument("-dataset_folder", type=str, default="/home/ybahat/data/Databases/cifar10/bin", help='Folder where dataset files reside',nargs=1)
 parser.add_argument("-detector_checkpoint", type=str, help="Layers widths",default='./detector_ckpt', nargs='*')
-parser.add_argument("-batch_size", type=int, default=32,help="Batch size for detector training", nargs=1)
-parser.add_argument("-epochs", type=int, default=1000,help="Number of training epochs", nargs=1)
-parser.add_argument("-test_freq", type=int, default=5,help="Test detector every how many epochs", nargs=1)
+parser.add_argument("-batch_size", type=int, default=32,help="Batch size for detector training")
+parser.add_argument("-epochs", type=int, default=1000,help="Number of training epochs")
+parser.add_argument("-test_freq", type=int, default=5,help="Test detector every how many epochs")
 parser.add_argument("-figures_folder", type=str, default="./figures", help='Folder where figures are saved',nargs=1)
-parser.add_argument("-lr_decrease_epochs", type=int, default=30,help="Number of epochs without training loss drop before decreasing lr", nargs=1)
-parser.add_argument("-lr", type=float, default=0.005,help="Initial Learning Rate", nargs=1)
-parser.add_argument("-train_portion", type=float, default=0.5,help="Portion of validation dataset used as detector training set", nargs=1)
+parser.add_argument("-lr_decrease_epochs", type=int, default=30,help="Number of epochs without training loss drop before decreasing lr")
+parser.add_argument("-lr", type=float, default=0.005,help="Initial Learning Rate")
+parser.add_argument("-train_portion", type=float, default=0.5,help="Portion of validation dataset used as detector training set")
 parser.add_argument("-train", action='store_true', help="Train the model (Don't just evaluate a trained model)")
 parser.add_argument("-resume_train", action='store_true', help="Resume training of a pre-trained detector")
 parser.add_argument("-data_normalization", action='store_true',help="Don''t use Class Balanced loss")
@@ -52,7 +51,6 @@ for k, v in sorted(args._get_kwargs()):
     print('%s: %s' % (str(k), str(v)))
 print('-------------- End ----------------')
 
-batch_size = args.batch_size
 validation_split_filename = os.path.join(args.dataset_folder,'ValidationSetSplit_%s.npz'%(str(args.train_portion).replace('.','_')))
 if os.path.exists(validation_split_filename):
     detector_train_set_indicator = np.load(validation_split_filename)['detector_train_set_indicator']
@@ -64,20 +62,28 @@ else:
     np.savez(validation_split_filename,detector_train_set_indicator=detector_train_set_indicator)
 num_of_samples = example_utils.SplitCifar10TestSet(dataset_folder=args.dataset_folder,train_indicator=detector_train_set_indicator)
 data2use = tf.placeholder(dtype=tf.string)
-images_stats,labels_stats = cifar10.inputs(eval_data=False, inner_data_dir=args.dataset_folder,batch_size=args.batch_size)
-def StatsData():    return images_stats, labels_stats
-images_val, labels_val = cifar10.inputs(eval_data=True, inner_data_dir=args.dataset_folder,batch_size=args.batch_size)
-def ValData():  return images_val, labels_val
-if args.no_augmentation:
-    images_train, labels_train = images_stats,labels_stats
-else:
-    images_train,labels_train = cifar10.distorted_inputs(eval_data=False, inner_data_dir=args.dataset_folder,batch_size=args.batch_size)
-def TrainData():    return images_train, labels_train
-images, labels = tf.case({tf.equal(data2use,'stats'):StatsData,tf.equal(data2use,'train'):TrainData,tf.equal(data2use,'val'):ValData})
-transformer = Transformations.Transformer(transformations=TRANSFORMATIONS_LIST,image_size=cifar10.IMAGE_SIZE)
-images,labels = transformer.TransformImages_TF_OP(images,labels)
-train_batches_per_epoch = int(np.ceil(num_of_samples*args.train_portion / args.batch_size))
+transformer = Transformations.Transformer(transformations=TRANSFORMATIONS_LIST)
 
+# Detector training set, for classifier accuracy testing:
+image_stats,label_stats = cifar10.inputs(eval_data=False, inner_data_dir=args.dataset_folder,batch_size=args.batch_size)
+image_stats,label_stats = transformer.TransformImages_TF_OP(image_stats,label_stats)
+images_stats,labels_stats = cifar10.ImagePostProcessAndBatch(image_stats, label_stats, args.batch_size, shuffle=False)
+def StatsData():    return images_stats, labels_stats
+
+# Detector training set, for detector training:
+image_train,label_train = cifar10.distorted_inputs(eval_data=False, inner_data_dir=args.dataset_folder,batch_size=args.batch_size)
+image_train,label_train = transformer.TransformImages_TF_OP(image_train,label_train)
+images_train,labels_train = cifar10.ImagePostProcessAndBatch(image_train, label_train, args.batch_size, shuffle=False)
+def TrainData():    return images_train, labels_train
+
+# Detector validation set:
+image_val,label_val = cifar10.inputs(eval_data=True, inner_data_dir=args.dataset_folder,batch_size=args.batch_size)
+image_val,label_val = transformer.TransformImages_TF_OP(image_val,label_val)
+images_val,labels_val = cifar10.ImagePostProcessAndBatch(image_val, label_val, args.batch_size, shuffle=False)
+def ValData():    return images_val, labels_val
+images, labels = tf.case({tf.equal(data2use,'stats'):StatsData,tf.equal(data2use,'train'):TrainData,tf.equal(data2use,'val'):ValData})
+
+train_batches_per_epoch = int(np.ceil(num_of_samples*args.train_portion / args.batch_size))
 val_batches_per_epoch = int(np.ceil(num_of_samples*(1-args.train_portion) / args.batch_size))
 # Classifier:
 classifier = cifar10.inference(images)

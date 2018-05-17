@@ -27,6 +27,8 @@ import tensorflow as tf
 # Process images of this size. Note that this differs from the original CIFAR
 # image size of 32 x 32. If one alters this number, then the entire model
 # architecture will change and any model would need to be retrained.
+AVOID_STANDARTIZATION = True
+
 IMAGE_SIZE = 24
 
 # Global constants describing the CIFAR-10 data set.
@@ -96,8 +98,7 @@ def read_cifar10(filename_queue):
   return result
 
 
-def _generate_image_and_label_batch(image, label, min_queue_examples,
-                                    batch_size, shuffle):
+def _generate_image_and_label_batch(image, label, min_queue_examples,batch_size, shuffle):
   """Construct a queued batch of images and labels.
   Args:
     image: 3-D Tensor of [height, width, 3] of type.float32.
@@ -119,19 +120,35 @@ def _generate_image_and_label_batch(image, label, min_queue_examples,
       batch_size=batch_size,
       num_threads=num_preprocess_threads,
       capacity=min_queue_examples + 3 * batch_size,
-      min_after_dequeue=min_queue_examples)
+      min_after_dequeue=min_queue_examples,enqueue_many=True)
   else:
     images, label_batch = tf.train.batch(
       [image, label],
       batch_size=batch_size,
       num_threads=num_preprocess_threads,
-      capacity=min_queue_examples + 3 * batch_size)
+      capacity=min_queue_examples + 3 * batch_size,enqueue_many=True)
 
   # Display the training images in the visualizer.
   tf.summary.image('images', images)
 
   return images, tf.reshape(label_batch, [batch_size])
 
+def ImagePostProcessAndBatch(image, label, batch_size, shuffle):
+  # Ensure that the random shuffling has good mixing properties.
+  min_fraction_of_examples_in_queue = 0.4
+  min_queue_examples = int(NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN *
+                           min_fraction_of_examples_in_queue)
+  print('Filling queue with %d CIFAR images before starting to train. '
+        'This will take a few minutes.' % min_queue_examples)
+  # image_label_pairs = [(tf.image.per_image_standardization(image[i]),label[i]) for i in range(len(image))]
+  # batches = [_generate_image_and_label_batch(pair[0], pair[1], min_queue_examples, batch_size, shuffle=shuffle) for pair in image_label_pairs]
+  # batches = [_generate_image_and_label_batch(tf.image.per_image_standardization(image[i]), label[i], min_queue_examples, batch_size, shuffle=shuffle) for i in range(len(image))]
+  # images = tf.reshape(tf.concat([tf.expand_dims(batch[0],axis=1) for batch in batches],axis=1),[-1]+image[0].get_shape().as_list())
+  # labels = tf.reshape(tf.concat([tf.expand_dims(batch[1],axis=1) for batch in batches],axis=1),[-1])
+  # return images,labels
+  per_image_copies = image.get_shape().as_list()[0]
+  image = tf.map_fn(lambda im:tf.image.per_image_standardization(im),image)
+  return _generate_image_and_label_batch(image, label, min_queue_examples, per_image_copies*batch_size, shuffle=shuffle)
 
 def distorted_inputs(data_dir, batch_size):
   """Construct distorted input for CIFAR training using the Reader ops.
@@ -177,23 +194,26 @@ def distorted_inputs(data_dir, batch_size):
                                                lower=0.2, upper=1.8)
 
     # Subtract off the mean and divide by the variance of the pixels.
-    float_image = tf.image.per_image_standardization(distorted_image)
+    if AVOID_STANDARTIZATION:
+      float_image = distorted_image
+    else:
+      float_image = tf.image.per_image_standardization(distorted_image)
 
     # Set the shapes of tensors.
     float_image.set_shape([height, width, 3])
     read_input.label.set_shape([1])
 
-    # Ensure that the random shuffling has good mixing properties.
-    min_fraction_of_examples_in_queue = 0.4
-    min_queue_examples = int(NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN *
-                             min_fraction_of_examples_in_queue)
-    print('Filling queue with %d CIFAR images before starting to train. '
-          'This will take a few minutes.' % min_queue_examples)
-
+    # # Ensure that the random shuffling has good mixing properties.
+    # min_fraction_of_examples_in_queue = 0.4
+    # min_queue_examples = int(NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN *
+    #                          min_fraction_of_examples_in_queue)
+    # print('Filling queue with %d CIFAR images before starting to train. '
+    #       'This will take a few minutes.' % min_queue_examples)
+  return float_image,read_input.label
   # Generate a batch of images and labels by building up a queue of examples.
-  return _generate_image_and_label_batch(float_image, read_input.label,
-                                         min_queue_examples, batch_size,
-                                         shuffle=True)
+  # return _generate_image_and_label_batch(float_image, read_input.label,
+  #                                        min_queue_examples, batch_size,
+  #                                        shuffle=True)
 
 
 def inputs(eval_data, data_dir, batch_size):
@@ -232,9 +252,11 @@ def inputs(eval_data, data_dir, batch_size):
     # Crop the central [height, width] of the image.
     resized_image = tf.image.resize_image_with_crop_or_pad(reshaped_image,
                                                            height, width)
-
-    # Subtract off the mean and divide by the variance of the pixels.
-    float_image = tf.image.per_image_standardization(resized_image)
+    if AVOID_STANDARTIZATION:
+      float_image = resized_image
+    else:
+      # Subtract off the mean and divide by the variance of the pixels.
+      float_image = tf.image.per_image_standardization(resized_image)
 
     # Set the shapes of tensors.
     float_image.set_shape([height, width, 3])
@@ -245,7 +267,8 @@ def inputs(eval_data, data_dir, batch_size):
     min_queue_examples = int(num_examples_per_epoch *
                              min_fraction_of_examples_in_queue)
 
+  return float_image,read_input.label
   # Generate a batch of images and labels by building up a queue of examples.
-  return _generate_image_and_label_batch(float_image, read_input.label,
-                                         min_queue_examples, batch_size,
-                                         shuffle=False)
+  # return _generate_image_and_label_batch(float_image, read_input.label,
+  #                                        min_queue_examples, batch_size,
+  #                                        shuffle=False)
