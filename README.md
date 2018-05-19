@@ -16,10 +16,10 @@ If you find our work useful in your research or publication, please cite it:
 }
 ```
 ----------
-# Usage:
+# General usage:
+The core transformations TensorFlow operators are implemented in file Transformations.py. These operators can be incorporated for both error detection and novelty detection, as described in the paper. Be sure to apply the transformations directly on the images, before applying any standartization or whitening processes (e.g. subtracting images' mean). If the classifier at hand requires such operations, apply them after applying the transformations operator.
 
-The core transformations TensorFlow operators are implemented in file Transformations.py. These operators can be incorporated for both error detection and novelty detection, as described in the paper.
-
+# Example - Error detection on a pre-trained CIFAR-10 classifier:
 We provide here an example usage of error detection on a pre-trained CIFAR-10 classifier. The classifier model code was modified from the [CIFAR-10 classifier by TensorFlow](https://github.com/tensorflow/models/tree/master/tutorials/image/cifar10).
 
 ## Detector training:
@@ -34,6 +34,9 @@ where the number of hidden layers and the number of channels in each layer in th
 will train a detector with 2 hidden layers, each with 70 channels, and will use the name ```70_70```.
 
 To resume training of a pre-trained detector use ```-resume_train``` instead of ```-train```. To evaluate a pre-trained detector, simply omit these flags.
+
+## Features normalization:
+Using the optional ```-data_normalization``` flag will normalize the feature vectors prior to feeding them into the detector.
 
 ## Detector training and evaluation sets:
 The detector is trained on a portion of the original validation set, by assigning this portion to be used as detector training images, while the rest of the images are used for its evaluation. In order to compare different detector configurations and compare to other methods, the same assignment is reused by saving it to ```ValidationSetSplit_<TRAIN_PORTION>.npz```. The repository includes the assignment for the default ```TRAIN_PORTION```=0.5 assignment.
