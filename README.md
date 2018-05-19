@@ -22,7 +22,8 @@ The core transformations TensorFlow operators are implemented in file Transforma
 
 We provide here an example usage of error detection on a pre-trained CIFAR-10 classifier. The classifier model code was modified from the [CIFAR-10 classifier by TensorFlow](https://github.com/tensorflow/models/tree/master/tutorials/image/cifar10).
 
-To train a detector, set ```TRANSFORMATIONS_LIST``` (in train_detector.py) to include the desired transformations (from the list in Transformations.py), then run
+## Detector training:
+To train a detector, set ```TRANSFORMATIONS_LIST``` (in train_detector.py) to include the desired transformations (from the list in Transformations.py). When setting it to an empty list, the input to the detector will consist the logits of the original input image alone. To start training, run
 
 ```python train.detector.py -layers_widths <LAYERS_WIDTHS> -descriptor <MODEL_DESCRIPTOR> -train```,
 
@@ -32,4 +33,10 @@ where the number of hidden layers and the number of channels in each layer in th
 
 will train a detector with 2 hidden layers, each with 70 channels, and will use the name ```70_70```.
 
+To resume training of a pre-trained detector use ```-resume_train``` instead of ```-train```. To evaluate a pre-trained detector, simply omit these flags.
+
+## Detector training and evaluation sets:
 The detector is trained on a portion of the original validation set, by assigning this portion to be used as detector training images, while the rest of the images are used for its evaluation. In order to compare different detector configurations and compare to other methods, the same assignment is reused by saving it to ```ValidationSetSplit_<TRAIN_PORTION>.npz```. The repository includes the assignment for the default ```TRAIN_PORTION```=0.5 assignment.
+
+## Saved models and figures:
+Detector models are regularely saved into a sub-folder to allow later evaluation or further training. Each time a detector is evaluated (either during training or evaluation runs), a Receiver Operating Characteristic (ROC) curve is saved to a figure in a designated sub-folder, and compared to all previously trained detectors.
