@@ -22,7 +22,7 @@ The core transformations TensorFlow operators are implemented in file Transforma
 
 We provide here an example usage of error detection on a pre-trained CIFAR-10 classifier. The classifier model code was modified from the [CIFAR-10 classifier by TensorFlow](https://github.com/tensorflow/models/tree/master/tutorials/image/cifar10).
 
-Once the repository is cloned into ```<CFI_folder>```, set ```TRANSFORMATIONS_LIST``` (in train_detector.py) to include the desired transformations (from the list in Transformations.py). Then train a detector by running 
+To train a detector, set ```TRANSFORMATIONS_LIST``` (in train_detector.py) to include the desired transformations (from the list in Transformations.py), then run
 
 ```python train.detector.py -layers_widths <LAYERS_WIDTHS> -descriptor <MODEL_DESCRIPTOR> -train```,
 
@@ -31,3 +31,5 @@ where the number of hidden layers and the number of channels in each layer in th
 ```python train.detector.py -layers_widths 70 70 -descriptor 70_70 -train```
 
 will train a detector with 2 hidden layers, each with 70 channels, and will use the name ```70_70```.
+
+The detector is trained on a portion of the original validation set, by assigning this portion to be used as detector training images, while the rest of the images are used for its evaluation. In order to compare different detector configurations and compare to other methods, the same assignment is reused by saving it to ```ValidationSetSplit_<TRAIN_PORTION>.npz```. The repository includes the assignment for the default ```TRAIN_PORTION```=0.5 assignment.
