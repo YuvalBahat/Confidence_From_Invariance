@@ -25,7 +25,7 @@ We provide here an example usage of error detection on a pre-trained CIFAR-10 cl
 ## Detector training:
 To train a detector, set ```TRANSFORMATIONS_LIST``` (in train_detector.py) to include the desired transformations (from the list in Transformations.py). Setting it to an empty list means the input to the detector will consist only the logits of the original input image, without any transformations. To start training, run
 
-```python train.detector.py -layers_widths <LAYERS_WIDTHS> -descriptor <MODEL_DESCRIPTOR> -train```,
+```python train_detector.py -layers_widths <LAYERS_WIDTHS> -descriptor <MODEL_DESCRIPTOR> -train```,
 
 where the number of hidden layers and the number of channels in each layer in the detector is set using ```LAYERS_WIDTHS```, and ```MODEL_DESCRIPTOR``` is a name used for saving the model and comparing ROC curves. For example,
 
