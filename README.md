@@ -33,7 +33,7 @@ where the number of hidden layers and the number of channels in each layer in th
 
 will train a detector with 2 hidden layers, each with 70 channels, and will use the name ```70_70```.
 
-To resume training of a pre-trained detector use ```-resume_train``` instead of ```-train```, and use niether flag when evaluating a pre-trained detector.
+To resume training of a pre-trained detector use ```-resume_train``` instead of ```-train```, and use neither flag when evaluating a pre-trained detector.
 
 ## Features normalization:
 Using the optional ```-data_normalization``` flag will normalize the feature vectors prior to feeding them into the detector.
@@ -42,4 +42,4 @@ Using the optional ```-data_normalization``` flag will normalize the feature vec
 The detector is trained on a portion of the original validation set, by assigning this portion to be used as detector training images, while the rest of the images are used for its evaluation. In order to compare different detector configurations and compare to other methods, the same assignment is reused by saving it to ```ValidationSetSplit_<TRAIN_PORTION>.npz```. This repository already includes an assignment for the default ```TRAIN_PORTION```=0.5 split.
 
 ## Saved models and figures:
-Detector models are regularely saved into a sub-folder to allow later evaluation or further training. Further more, each time a detector is evaluated (either during training or evaluation runs), a Receiver Operating Characteristic (ROC) curve corresponding to the current detector is saved to a figure, comparing it with ROC curves corresponding to all previously trained detectors.
+Detector models are regularly saved into a sub-folder to allow later evaluation or further training. Further more, each time a detector is evaluated (either during training or evaluation runs), a Receiver Operating Characteristic (ROC) curve corresponding to the current detector is saved to a figure, comparing it with ROC curves corresponding to all previously trained detectors.
