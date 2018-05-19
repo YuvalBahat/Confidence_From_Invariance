@@ -1,2 +1,3 @@
 # Confidence From Invariance
-Error and novelty detection using invariance to natural image transformations
+This repository contains code implementing the error and novelty detection method described in [Confidence from Invariance to Image
+Transformations](https://arxiv.org/abs/1804.00657)
