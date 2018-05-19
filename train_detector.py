@@ -8,17 +8,15 @@ import detector_network
 import example_utils
 import cifar10.cifar10 as cifar10
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "5"  # Limit to 1 GPU when using an interactive session
-
 MIN_LR = 0.005/16
 LEARNING_RATE_DECAY_FACTOR = 0.5
 MOVING_AVERAGE_DECAY = 0.9999  # The decay to use for the moving average.
 TRANSFORMATIONS_LIST = ['BW','horFlip','increaseContrast3','gamma8.5','blur3']
 
 parser = argparse.ArgumentParser()
-parser.add_argument("-detector_checkpoint", type=str, help="Folder name for storing the detector checkpoints",default='./detector_ckpt')
-parser.add_argument("-classifier_checkpoint", type=str, help="Folder containing classifier''s checkpoint")
-parser.add_argument("-dataset_folder", type=str, help='Folder where dataset files reside')
+parser.add_argument("-detector_checkpoint", type=str,default='./detector_ckpt', help="Folder name for storing the detector checkpoints")
+parser.add_argument("-classifier_checkpoint", type=str, default='./cifar10/checkpoint',help="Folder containing classifier''s checkpoint")
+parser.add_argument("-dataset_folder", type=str, default='./cifar10/dataset',help='Folder where dataset files reside')
 parser.add_argument("-layers_widths", type=str, help="Number of channels is each of the detector''s hidden layers (and therefore number of hidden layers too)", nargs='*')
 parser.add_argument("-descriptor", type=str,help="Optional string to be assigned to ROC curve and saved model")
 parser.add_argument("-batch_size", type=int, default=32,help="Batch size for detector training")
