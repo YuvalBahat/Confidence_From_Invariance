@@ -19,7 +19,7 @@ If you find our work useful in your research or publication, please cite it:
 # General usage:
 The core transformations TensorFlow operators are implemented in file Transformations.py. These operators can be incorporated for both error detection and novelty detection, as described in the paper. Be sure to apply the transformations directly on the images, before applying any standartization or whitening processes (e.g. subtracting images' mean). If the classifier at hand requires such operations, apply them after applying the transformations operator.
 
-# Example - Error detection on a pre-trained CIFAR-10 classifier:
+# Example of error detection on a pre-trained CIFAR-10 classifier:
 We provide here an example usage of error detection on a pre-trained CIFAR-10 classifier. The classifier model code was modified from the [CIFAR-10 classifier by TensorFlow](https://github.com/tensorflow/models/tree/master/tutorials/image/cifar10).
 
 ## Detector training:
