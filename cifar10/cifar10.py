@@ -32,7 +32,6 @@ import tensorflow as tf
 
 import cifar10.cifar10_input as cifar10_input
 import sys
-# if __name__ == "__main__":
 FLAGS = tf.app.flags.FLAGS
 
 # Basic model parameters.
@@ -66,25 +65,6 @@ RELATIVE_WEIGHTS_CONF = 'outputs_linear_comb_pull_up'#'outputs_linear_comb'#'wei
 TOWER_NAME = 'tower'
 
 DATA_URL = 'http://www.cs.toronto.edu/~kriz/cifar-10-binary.tar.gz'
-
-def _activation_summary(x):
-  """Helper to create summaries for activations.
-
-  Creates a summary that provides a histogram of activations.
-  Creates a summary that measures the sparsity of activations.
-
-  Args:
-    x: Tensor
-  Returns:
-    nothing
-  """
-  # Remove 'tower_[0-9]/' from the name in case this is a multi-GPU training
-  # session. This helps the clarity of presentation on tensorboard.
-  tensor_name = re.sub('%s_[0-9]*/' % TOWER_NAME, '', x.op.name)
-  tf.summary.histogram(tensor_name + '/activations', x)
-  tf.summary.scalar(tensor_name + '/sparsity',
-                                       tf.nn.zero_fraction(x))
-
 
 def _variable_on_cpu(name, shape, initializer):
   """Helper to create a Variable stored on CPU memory.
@@ -200,7 +180,6 @@ class inference:
       biases = _variable_on_cpu('biases', [64], tf.constant_initializer(0.0))
       pre_activation = tf.nn.bias_add(conv, biases)
       self.conv1 = tf.nn.relu(pre_activation, name=scope.name)
-      _activation_summary(self.conv1)
       self.num_weights +=  np.prod(kernel.get_shape().as_list()) + np.prod(biases.get_shape().as_list())
     # pool1
     self.pool1 = tf.nn.max_pool(self.conv1, ksize=[1, 3, 3, 1], strides=[1, 2, 2, 1],
@@ -219,7 +198,6 @@ class inference:
       biases = _variable_on_cpu('biases', [64], tf.constant_initializer(0.1))
       pre_activation = tf.nn.bias_add(conv, biases)
       self.conv2 = tf.nn.relu(pre_activation, name=scope.name)
-      _activation_summary(self.conv2)
       self.num_weights +=  np.prod(kernel.get_shape().as_list()) + np.prod(biases.get_shape().as_list())
 
     # norm2
@@ -237,7 +215,6 @@ class inference:
                                             stddev=0.04, wd=weight_decay)
       biases = _variable_on_cpu('biases', [384], tf.constant_initializer(0.1))
       self.local3 = tf.nn.relu(tf.matmul(reshape, weights) + biases, name=scope.name)
-      _activation_summary(self.local3)
       self.num_weights +=  np.prod(weights.get_shape().as_list()) + np.prod(biases.get_shape().as_list())
 
     # local4
@@ -246,7 +223,6 @@ class inference:
                                             stddev=0.04, wd=weight_decay)
       biases = _variable_on_cpu('biases', [192], tf.constant_initializer(0.1))
       self.local4 = tf.nn.relu(tf.matmul(self.local3, weights) + biases, name=scope.name)
-      _activation_summary(self.local4)
       self.num_weights +=  np.prod(weights.get_shape().as_list()) + np.prod(biases.get_shape().as_list())
     # linear layer(WX + b),
     # We don't apply softmax here because
@@ -262,34 +238,8 @@ class inference:
       self.top_weights = weights
       self.top_biases = biases
       self.softmax_linear = tf.add(tf.matmul(self.local4, weights), biases, name=scope.name)
-      _activation_summary(self.softmax_linear)
       self.num_weights +=  np.prod(weights.get_shape().as_list()) + np.prod(biases.get_shape().as_list())
     print('Classifier has a total of %d parameters'%(self.num_weights))
 
   def inference_logits(self):
     return self.softmax_linear
-    # return softmax_linear
-
-
-def loss(logits, labels):
-  """Add L2Loss to all the trainable variables.
-
-  Add summary for "Loss" and "Loss/avg".
-  Args:
-    logits: Logits from inference().
-    labels: Labels from distorted_inputs or inputs(). 1-D tensor
-            of shape [batch_size]
-
-  Returns:
-    Loss tensor of type float.
-  """
-  # Calculate the average cross entropy loss across the batch.
-  labels = tf.cast(labels, tf.int64)
-  cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
-      labels=labels, logits=logits, name='cross_entropy_per_example')
-  cross_entropy_mean = tf.reduce_mean(cross_entropy, name='cross_entropy')
-  tf.add_to_collection('losses', cross_entropy_mean)
-
-  # The total loss is defined as the cross entropy loss plus all of the weight
-  # decay terms (L2 loss).
-  return tf.add_n(tf.get_collection('losses'), name='total_loss')

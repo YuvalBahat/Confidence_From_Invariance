@@ -107,3 +107,6 @@ venv.bak/
 *.xml
 
 idea
+
+detector_ckpt/
+figures/
