@@ -33,7 +33,7 @@ where the number of hidden layers and the number of channels in each layer in th
 
 will train a detector with 2 hidden layers, each with 70 channels, and will use the name ```70_70```.
 
-To resume training of a pre-trained detector use ```-resume_train``` instead of ```-train```, and use neither flag when evaluating a pre-trained detector.
+To resume training of a pre-trained detector use ```-resume_train``` instead of ```-train```, and use neither flags when evaluating a pre-trained detector.
 
 ## Features normalization:
 Using the optional ```-data_normalization``` flag will normalize the feature vectors prior to feeding them into the detector.
