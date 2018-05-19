@@ -22,12 +22,12 @@ The core transformations TensorFlow operators are implemented in file Transforma
 
 We provide here an example usage of error detection on a pre-trained CIFAR-10 classifier. The classifier model code was modified from the [CIFAR-10 classifier by TensorFlow](https://github.com/tensorflow/models/tree/master/tutorials/image/cifar10).
 
-Once the repository is cloned into '''<CFI_folder>''', set '''TRANSFORMATIONS_LIST''' (in train_detector.py) to include the desired transformations (from the list in Transformations.py). Then train a detector by running 
+Once the repository is cloned into ```<CFI_folder>```, set ```TRANSFORMATIONS_LIST``` (in train_detector.py) to include the desired transformations (from the list in Transformations.py). Then train a detector by running 
 
-'''python train.detector.py -layers_widths <LAYERS_WIDTHS> -descriptor <MODEL_DESCRIPTOR> -train''',
+```python train.detector.py -layers_widths <LAYERS_WIDTHS> -descriptor <MODEL_DESCRIPTOR> -train```,
 
-where the number of hidden layers and the number of channels in each layer in the detector is set using '''LAYERS_WIDTHS''' and '''MODEL_DESCRIPTOR''' is a name used for saving the model and comparing ROC curves. For example,
+where the number of hidden layers and the number of channels in each layer in the detector is set using ```LAYERS_WIDTHS``` and ```MODEL_DESCRIPTOR``` is a name used for saving the model and comparing ROC curves. For example,
 
-'''python train.detector.py -layers_widths 70 70 -descriptor 70_70 -train'''
+```python train.detector.py -layers_widths 70 70 -descriptor 70_70 -train```
 
-will train a detector with 2 hidden layers, each with 70 channels, and will use the name '''70_70'''.
+will train a detector with 2 hidden layers, each with 70 channels, and will use the name ```70_70```.
