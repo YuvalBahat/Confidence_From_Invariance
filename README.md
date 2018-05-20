@@ -17,7 +17,7 @@ If you find our work useful in your research or publication, please cite it:
 ```
 ----------
 # General usage:
-The core transformations TensorFlow operators are implemented in file Transformations.py. These
+The TensorFlow transformations operators, which constitute the core of this method, are implemented in file Transformations.py. These
  operators can be incorporated for both error detection and novelty detection on any given pre-trained image 
  classifier, as described in the paper. Be sure to apply the transformations directly on the images, before applying any standartization or whitening processes (e.g. subtracting images' mean). If the classifier at hand requires such operations, apply them after applying the transformations operator.
 
