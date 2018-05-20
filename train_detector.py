@@ -11,7 +11,9 @@ import cifar10.cifar10 as cifar10
 MIN_LR = 0.005/16
 LEARNING_RATE_DECAY_FACTOR = 0.5
 MOVING_AVERAGE_DECAY = 0.9999  # The decay to use for the moving average.
-TRANSFORMATIONS_LIST = ['BW','horFlip','increaseContrast3','gamma8.5','blur3']
+TRANSFORMATIONS_LIST = ['BW','horFlip','increaseContrast3','gamma8.5','blur3']  # Transformations to be applied on images. Choose from the list of implemented
+                                                                                # transformations in Transformations.py. Passing an empty list will have the
+                                                                                # detector train on the logits output corresponding to the original image only.
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-detector_checkpoint", type=str,default='./detector_ckpt', help="Folder name for storing the detector checkpoints")
@@ -20,10 +22,10 @@ parser.add_argument("-dataset_folder", type=str, default='./cifar10/dataset',hel
 parser.add_argument("-layers_widths", type=str, help="Number of channels is each of the detector''s hidden layers (and therefore number of hidden layers too)", nargs='*')
 parser.add_argument("-descriptor", type=str,help="Optional string to be assigned to ROC curve and saved model")
 parser.add_argument("-batch_size", type=int, default=32,help="Batch size for detector training")
-parser.add_argument("-epochs", type=int, default=1000,help="Maximal number of training epochs")
+parser.add_argument("-epochs", type=int, default=200,help="Maximal number of training epochs")
 parser.add_argument("-test_freq", type=int, default=5,help="Test detector every how many epochs")
 parser.add_argument("-figures_folder", type=str, default="./figures", help='Folder where ROC curve figures are saved',nargs=1)
-parser.add_argument("-lr_decrease_epochs", type=int, default=100,help="Number of epochs without training loss drop before decreasing lr")
+parser.add_argument("-lr_decrease_epochs", type=int, default=30,help="Number of epochs without training loss drop before decreasing lr")
 parser.add_argument("-lr", type=float, default=0.005,help="Initial Learning Rate")
 parser.add_argument("-train_portion", type=float, default=0.5,help="Portion of validation dataset used as detector training set")
 parser.add_argument("-train", action='store_true', help="Train the model (Don't just evaluate a trained model)")
