@@ -8,8 +8,6 @@ import detector_network
 import example_utils
 import cifar10.cifar10 as cifar10
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "3"  # Limit to 1 GPU when using an interactive session
-
 MIN_LR = 0.005/16
 LEARNING_RATE_DECAY_FACTOR = 0.5
 MOVING_AVERAGE_DECAY = 0.9999  # The decay to use for the moving average.
