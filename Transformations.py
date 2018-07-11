@@ -7,12 +7,17 @@ import tensorflow as tf
 #   'BW':                   Convert image to gray-scale
 #   'gamma<x>':             Gamma transformation. Each pixel value is raised to the power of 0.1*x, after being normalized to the range [0,1]
 #   'blur<x>':              Horizontally blur the image with a magnitude of x pixels.
+#   'zoomin<x>':            Zoom-in to 0.01*x center of image, then resize (using bilinear interolation) to original image size
+#   'crop<x>_<y>':          Zoom-in to 0.01*x portion of image, 0.01*y right and down from the upper left corner, then resize (using bilinear interolation) to original image size
 
 class Transformer():
     def __init__(self, transformations, batch_operation=True,max_pixel_value=255):
         # Inputs:
-        #   transformations:    List of strings (out of the optional tranformations listed above) defining the transformations to be applied on all images.
-        #                       Each string may optionally contain a parameter, in the form of <transformation_name><parameter> (e.g. gamma8.5)
+        #   transformations:    List of either strings or lists of string (out of the optional tranformations listed above) defining the transformations
+        #                       to be applied on all images. Each string may optionally contain a parameter, in the form
+        #                       of <transformation_name><parameter> (e.g. gamma8.5). When a transformation is a list of strings, these transformations
+        #                       are applied one after the other on each image. Parameters can also be stochastic. For this, pass <min_parameter*max_parameter>
+        #                       instead of <parameter>, and the parameter will be randomly picked for each image, using a uniform distribution.
         #   batch_operation:    Whether the transformer should operate on a single images tensor or a batch of images tensor (default)
         #   max_pixel_value:    Pixels' dynamic range is expected to be in [0,max_pixel_value]
         # Output:
@@ -20,19 +25,27 @@ class Transformer():
 
         self.batch_operation = batch_operation
         self.max_pixel_value = max_pixel_value
-        self.transformations = transformations
+        self.transformations = [t if isinstance(t,list) else [t] for t in transformations]
         self.num_transformations = len(self.transformations)
         self.per_image_copies = len(self.transformations) + 1
-        self.transformation_param = np.nan*np.zeros([self.num_transformations])
-        for transformation_num,cur_transformation in enumerate(self.transformations):
-            is_digit = [character.isdigit() for character in self.transformations[transformation_num]]
-            if any(is_digit):
-                first_digit_index = is_digit.index(True)
-                self.transformation_param[transformation_num] = float(cur_transformation[first_digit_index:])
-                self.transformations[transformation_num] = cur_transformation[:first_digit_index]
+        self.transformation_param = [[[] for i_sub in range(len(self.transformations[i]))] for i in range(self.num_transformations)]
+        self.random_transformation = [np.zeros([len(self.transformations[i])]).astype(np.bool) for i in range(self.num_transformations)]
+        for ind, cur_transformation in enumerate(self.transformations):
+            for sub_ind,sub_transformation in enumerate (cur_transformation):
+                self.transformations[ind][sub_ind], self.transformation_param[ind][sub_ind], self.random_transformation[ind][sub_ind] =\
+                    ParseParameters(sub_transformation)
+
+    def TransformationParameter(self,ind,shape=None):
+        if self.random_transformation[ind[0]][ind[1]]:
+            if shape is None:
+                return [tf.random_uniform([],          minval=par[0],maxval=par[1]) for par in self.transformation_param[ind[0]][ind[1]]]
+            else:
+                return [tf.random_uniform(shape=shape, minval=par[0],maxval=par[1]) for par in self.transformation_param[ind[0]][ind[1]]]
+        else:
+            return [par for par in self.transformation_param[ind[0]][ind[1]]]
 
     def TransformImages_TF_OP(self,images,labels):
-        # Creating the transformed images and labels.
+        # Creating the transformed images and labels TensorFlow operator.
         # Inputs:
         #   images: A single image (HxWxC) or a batch of images (NxHxWxC) tensor (depending on batch_operation)
         #   labels: A 1-D tensor of corresponding image labels
@@ -42,32 +55,57 @@ class Transformer():
         assert (len(images.get_shape())==3 and not self.batch_operation) or (len(images.get_shape())==4 and self.batch_operation),'Incorrect shape of images input'
         if not self.batch_operation:
             images = tf.expand_dims(images,axis=0)
-        image_shape = images.get_shape().as_list()[1:]
+        image_shape = np.array(images.get_shape().as_list()[1:3])
         non_modified_images = tf.cast(images,tf.float32)
-        if any([('Contrast' in augm) for augm in self.transformations]):
+        if any([any([('Contrast' in T) for T in Ts]) for Ts in self.transformations]):
             image_mean = tf.reduce_mean(images,axis=(1,2),keep_dims=True)
         images2use = tf.expand_dims(images,axis=1)
-        for ind,cur_transformation in enumerate(self.transformations):
-            if 'increaseContrast' in cur_transformation:
-                modified_image = tf.maximum(0.0,tf.minimum((non_modified_images-image_mean)*(1+0.1*self.transformation_param[ind])+image_mean,self.max_pixel_value))
-            if 'horFlip' in cur_transformation:
-                # modified_image = tf.image.flip_left_right(non_modified_images)
-                modified_image = tf.map_fn(lambda image: tf.image.flip_left_right(image), non_modified_images)
-            if 'blur' in cur_transformation:
-                blur_pixels = int(self.transformation_param[ind])
-                assert blur_pixels>=2,'Blurring the image with blur kernel of size %d makes no difference'%(blur_pixels)
-                pre_blur_images = tf.pad(non_modified_images,paddings=((0,0),(0,0),(int((blur_pixels-1)/2),int((blur_pixels-1)/2)),(0,0)),mode='SYMMETRIC')
-                modified_image = tf.zeros_like(non_modified_images)
-                for pixel_num in range(blur_pixels):
-                    modified_image = tf.add(modified_image,tf.slice(pre_blur_images/blur_pixels,begin=[0,0,pixel_num,0],size=[-1,-1,tf.shape(non_modified_images)[1],-1]))
-            if 'BW' in cur_transformation:
-                modified_image = tf.tile(tf.reduce_sum(tf.multiply(non_modified_images,tf.reshape(tf.constant([0.299,0.587,0.114]),[1,1,1,3])),axis=3,keep_dims=True),multiples=[1,1,1,3])
-            if 'gamma' in cur_transformation:
-                modified_image = tf.clip_by_value(non_modified_images,clip_value_min=0,clip_value_max=self.max_pixel_value)
-                # tf.Assert(tf.reduce_all(tf.greater_equal(non_modified_images,0)),[tf.reduce_min(non_modified_images)])
-                modified_image = tf.pow(modified_image/self.max_pixel_value,0.1*self.transformation_param[ind])*self.max_pixel_value
+        for ind,cur_chained_transformation in enumerate(self.transformations):
+            modified_image = 1.*non_modified_images
+            for sub_ind,cur_transformation in enumerate(cur_chained_transformation):
+                if 'increaseContrast' in cur_transformation:
+                    modified_image = tf.maximum(0.0,tf.minimum((modified_image-image_mean)*(1+0.1*self.TransformationParameter((ind,sub_ind))[0])+image_mean,self.max_pixel_value))
+                elif 'horFlip' in cur_transformation:
+                    # modified_image = tf.image.flip_left_right(modified_image)
+                    modified_image = tf.map_fn(lambda image: tf.image.flip_left_right(image), modified_image)
+                elif 'blur' in cur_transformation:
+                    blur_pixels = int(self.TransformationParameter((ind,sub_ind))[0])
+                    assert blur_pixels>=2,'Blurring the image with blur kernel of size %d makes no difference'%(blur_pixels)
+                    pre_blur_images = tf.pad(modified_image,paddings=((0,0),(0,0),(int((blur_pixels-1)/2),int((blur_pixels-1)/2)),(0,0)),mode='SYMMETRIC')
+                    modified_image = tf.zeros_like(modified_image)
+                    for pixel_num in range(blur_pixels):
+                        modified_image = tf.add(modified_image,tf.slice(pre_blur_images/blur_pixels,begin=[0,0,pixel_num,0],size=[-1,-1,tf.shape(modified_image)[1],-1]))
+                elif 'BW' in cur_transformation:
+                    modified_image = tf.tile(tf.reduce_sum(tf.multiply(modified_image,tf.reshape(tf.constant([0.299,0.587,0.114]),[1,1,1,3])),axis=3,keep_dims=True),multiples=[1,1,1,3])
+                elif 'gamma' in cur_transformation:
+                    modified_image = tf.clip_by_value(modified_image,clip_value_min=0,clip_value_max=self.max_pixel_value)
+                    # tf.Assert(tf.reduce_all(tf.greater_equal(modified_image,0)),[tf.reduce_min(modified_image)])
+                    modified_image = tf.pow(modified_image/self.max_pixel_value,0.1*self.TransformationParameter((ind,sub_ind))[0])*self.max_pixel_value
+                elif 'zoomin' in cur_transformation:
+                    if self.random_transformation[ind][sub_ind]:
+                        crop_params = self.TransformationParameter((ind, sub_ind), shape=tf.reshape(tf.shape(images)[0], [1]))
+                        boxes = np.reshape([-1,-1,1,1],[1,4])*0.005*tf.reshape(tf.cast(crop_params[0],dtype=tf.float32),[-1,1])+0.5*np.ones([1,4])
+                    else:
+                        crop_params = self.TransformationParameter((ind, sub_ind))
+                        boxes = np.array([-1,-1,1,1])*0.005*crop_params[0]*tf.reshape(tf.ones(shape=tf.reshape(tf.shape(images)[0],[1])),[-1,1])+0.5*np.ones([1,4])
+                    box_ind = tf.cast(tf.cumsum(tf.ones(shape=tf.reshape(tf.shape(images)[0],[1])),axis=0)-1,dtype=tf.int32)
+                    crop_size = tf.constant(image_shape,dtype=tf.int32)
+                    modified_image = tf.image.crop_and_resize(image=modified_image,boxes=boxes,box_ind=box_ind,crop_size=crop_size)
+                elif 'crop' in cur_transformation:
+                    if self.random_transformation[ind][sub_ind]:
+                        crop_params = self.TransformationParameter((ind, sub_ind), shape=tf.reshape(tf.shape(images)[0], [1]))
+                        crop_params[1] = tf.minimum(crop_params[1],100-crop_params[0])
+                        boxes = 0.01*np.ones([1,4])*tf.reshape(tf.cast(crop_params[1],dtype=tf.float32),[-1,1])+0.01*np.reshape([0,0,1,1],[1,4])*tf.reshape(tf.cast(crop_params[0],dtype=tf.float32),[-1,1])
+                    else:
+                        crop_params = self.TransformationParameter((ind, sub_ind))
+                        boxes = 0.01*(np.ones([1,4])*crop_params[1]+np.reshape([0,0,1,1],[1,4])*crop_params[0])*tf.reshape(tf.ones(shape=tf.reshape(tf.shape(images)[0],[1])),[-1,1])
+                    box_ind = tf.cast(tf.cumsum(tf.ones(shape=tf.reshape(tf.shape(images)[0], [1])), axis=0) - 1,dtype=tf.int32)
+                    crop_size = tf.constant(image_shape, dtype=tf.int32)
+                    modified_image = tf.image.crop_and_resize(image=modified_image, boxes=boxes, box_ind=box_ind,crop_size=crop_size)
+                else:
+                    raise Exception('Transformation %s not implemented'%(cur_transformation))
             images2use = tf.concat((images2use,tf.expand_dims(tf.cast(modified_image,images.dtype),axis=1)),axis=1)
-        output_images =  tf.reshape(images2use,[-1]+image_shape)
+        output_images =  tf.reshape(images2use,[-1]+images.get_shape().as_list()[1:])
         output_labels = tf.reshape(tf.tile(tf.expand_dims(labels, axis=1), multiples=[1, self.per_image_copies]),[-1])
 
         return output_images,output_labels
@@ -91,7 +129,7 @@ class Transformer():
             tensor2return = tf.reshape(tf.slice(input_tensor,begin=[0,0]+list(np.zeros([len(input_tensor_shape)-1]).astype(np.int32)),size=[-1,1]+list(-1*np.ones([len(input_tensor_shape)-1]).astype(np.int32))),[-1])
         return tf.stop_gradient(tensor2return)
 
-    def Process_Logits_TF_OP(self,input_logits,reorder_logits=True,num_logits_per_transformation=-1):
+    def Process_Logits_TF_OP(self,input_logits,reorder_logits=True,num_logits_per_transformation=-1,avoid_gradients_calc=True):
         # Converts the logit output of a classifier fed by transformed images into a logits vector corresponding to the original image and a features vector.
         # Inputs:
         #   input_logits:                   The logits output of a classifier of interest, in the shape of NxNUM_CLASSES,
@@ -122,4 +160,25 @@ class Transformer():
             features_vect = tf.reshape(descending_values,[int(input_logits_shape[0]/self.per_image_copies),-1])
         else:
             features_vect = tf.reshape(input_logits,[-1, self.per_image_copies * input_logits_shape[-1]])
-        return tf.stop_gradient(logits_of_original),tf.stop_gradient(features_vect)
+        if avoid_gradients_calc:
+            return tf.stop_gradient(logits_of_original),tf.stop_gradient(features_vect)
+        else:
+            return logits_of_original,features_vect
+
+def ParseParameters(cur_transformation):
+    is_digit = [character.isdigit() for character in cur_transformation]
+    is_asterisk = [character == '*' for character in cur_transformation]
+    # is_underscore = [character == '_' for character in cur_transformation]
+    transformation_name,transformation_param,random_transformation = cur_transformation,None,False
+    if np.any(np.logical_or(is_asterisk,is_digit)):
+        transformation_param = []
+        params_first_ind = np.argwhere(np.logical_or(is_asterisk,is_digit))[0][0]
+        params = transformation_name[params_first_ind:].split('_')
+        transformation_name = cur_transformation[:params_first_ind]
+        for param in params:
+            if '*' in param:
+                random_transformation = True
+                transformation_param.append([float(param[:param.find('*')]),float(param[param.find('*')+1:])])
+            else:
+                transformation_param.append(float(param))
+    return transformation_name,transformation_param,random_transformation

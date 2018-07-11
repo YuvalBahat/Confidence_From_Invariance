@@ -8,6 +8,8 @@ import detector_network
 import example_utils
 import cifar10.cifar10 as cifar10
 
+os.environ["CUDA_VISIBLE_DEVICES"] = "3"  # Limit to 1 GPU when using an interactive session
+
 MIN_LR = 0.005/16
 LEARNING_RATE_DECAY_FACTOR = 0.5
 MOVING_AVERAGE_DECAY = 0.9999  # The decay to use for the moving average.
@@ -33,6 +35,7 @@ parser.add_argument("-resume_train", action='store_true', help="Resume training 
 parser.add_argument("-data_normalization", action='store_true',help="Normalize feature vectors to have 0 mean and STD of 1 prior to feeding the detector")
 parser.add_argument("-num_logits_per_transformation", type=int,default=-1,help="If positive, use only the HighEnerLogits logits holding most energy, calculated per-label over training set")
 parser.add_argument("-no_augmentation", action='store_true', help="Avoid applying random image distortions on the detector training set (prior to performing the detector transformations)")
+parser.add_argument("-L2_loss", action='store_true', help="Use L2 loss instead of cross-entropy loss")
 parser.add_argument("-dropout", type=float,default=0.5, help="Keeping probability for detector training (Set 1 for not using any drop-out)")
 args = parser.parse_args()
 print('------------ Options -------------')
@@ -141,13 +144,16 @@ print('Detector has a total of %d trainable weights' % (detector.num_weights))
 detector_logit = detector.logit
 if train:# Detector loss function:
     print('Balancing loss to reflect %.2f%% positive, instead of the original %.2f%%' % (100 * desired_pos_class_freq, 100 * pos_class_freq))
-    square_loss = tf.square(tf.subtract(detector_labels, detector.output))
-    square_loss = tf.add(
-        tf.multiply(tf.multiply((desired_pos_class_freq / pos_class_freq).astype(np.float32), detector_labels), square_loss),
+    if not args.L2_loss:
+        detector_loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=detector_labels,logits=detector_logit)
+    else:
+        detector_loss = tf.square(tf.subtract(detector_labels, detector.output))
+    detector_loss = tf.add(
+        tf.multiply(tf.multiply((desired_pos_class_freq / pos_class_freq).astype(np.float32), detector_labels), detector_loss),
         tf.multiply(tf.multiply(((1 - desired_pos_class_freq) / (1 - pos_class_freq)).astype(np.float32),
-                                tf.subtract(1.0, detector_labels)), square_loss))
-    square_loss = tf.reduce_mean(square_loss, name='square_loss')
-    tf.add_to_collection('losses',square_loss)
+                                tf.subtract(1.0, detector_labels)), detector_loss))
+    detector_loss = tf.reduce_mean(detector_loss, name='detector_loss')
+    tf.add_to_collection('losses',detector_loss)
     loss = tf.add_n(tf.get_collection('losses'), name='total_loss')
 
 global_step_detector = tf.train.get_or_create_global_step()
@@ -195,26 +201,28 @@ with tf.Session() as sess:
             threads.extend(qr.create_threads(sess, coord=coord, daemon=True, start=True))
         for epoch in range(args.epochs):
             if epoch%args.test_freq==0:
-                detector_val_logits,detector_val_labels,classifier_MSR_val = [],[],[]
+                detector_val_logits,detector_val_labels,classifier_MSR_val,detector_val_loss = [],[],[],[]
                 for batch_num in range(val_batches_per_epoch):#Evaluate detector on its validation set
-                    cur_logits,cur_labels,cur_softmax,_ = sess.run([detector_logit,detector_labels,classifier_softmax,eval_op],
+                    cur_logits,cur_labels,cur_softmax,_,cur_loss = sess.run([detector_logit,detector_labels,classifier_softmax,eval_op,detector_loss],
                         feed_dict={data2use:'val',lr:cur_lr,keep_prob:1,bn_learning:False})
                     detector_val_logits.append(cur_logits)
                     detector_val_labels.append(cur_labels)
+                    detector_val_loss.append(cur_loss)
                     classifier_MSR_val.append(np.max(cur_softmax,axis=1))
                 # Compute area under ROC and save curves to figure:
                 val_AUROC_CFI,val_AUROC_MSR = example_utils.ProcessValidationData(detector_val_logits, detector_val_labels, classifier_MSR_val,
                     figures_folder=args.figures_folder,descriptor=args.descriptor)
-                detector_train_logits,detector_train_labels,classifier_MSR_train = [],[],[]
+                detector_train_logits,detector_train_labels,classifier_MSR_train,detector_train_loss = [],[],[],[]
                 for batch_num in range(train_batches_per_epoch):#Evaluate detector on its training set:
-                    cur_logits, cur_labels, cur_softmax,_ = sess.run([detector_logit, detector_labels, classifier_softmax,eval_op],
+                    cur_logits, cur_labels, cur_softmax,_,cur_loss = sess.run([detector_logit, detector_labels, classifier_softmax,eval_op,detector_loss],
                         feed_dict={data2use: 'stats', lr: cur_lr, keep_prob: 1, bn_learning: False})
+                    detector_train_loss.append(cur_loss)
                     detector_train_logits.append(cur_logits)
                     detector_train_labels.append(cur_labels)
                     classifier_MSR_train.append(np.max(cur_softmax, axis=1))
                 train_AUROC_CFI,train_AUROC_MSR = example_utils.ProcessValidationData(detector_train_logits, detector_train_labels, classifier_MSR_train)
-                print('Epoch %d (%d sec/epoch). AUROC on e(training/validation) sets: (%.3f/%.3f). AUROC using MSR: (%.3f/%.3f)'%(
-                    epoch,np.mean(time_per_epoch),train_AUROC_CFI,val_AUROC_CFI,train_AUROC_MSR,val_AUROC_MSR))
+                print('Epoch %d (%d sec/epoch). Loss (tain/validation): (%.2e,%.2e). AUROC on (training/validation) sets: (%.3f/%.3f). AUROC using MSR: (%.3f/%.3f)'%
+                      (epoch,np.mean(time_per_epoch),np.mean(detector_train_loss),np.mean(detector_val_loss),train_AUROC_CFI,val_AUROC_CFI,train_AUROC_MSR,val_AUROC_MSR))
                 time_per_epoch = []
             if not train:
                 print('Detector evaluation is done')
@@ -223,7 +231,7 @@ with tf.Session() as sess:
             prev_time = time.time()
             # Train the detector:
             for batch_num in range(train_batches_per_epoch):
-                step, cur_loss,_ = sess.run([global_step_detector,square_loss,train_op],feed_dict={data2use:'train',lr:cur_lr,keep_prob:keep_prob_,bn_learning:True})
+                step, cur_loss,_ = sess.run([global_step_detector,detector_loss,train_op],feed_dict={data2use:'train',lr:cur_lr,keep_prob:keep_prob_,bn_learning:True})
                 train_loss += cur_loss/train_batches_per_epoch
             time_per_epoch.append(time.time()-prev_time)
             if lowest_train_loss is None or train_loss<lowest_train_loss:
